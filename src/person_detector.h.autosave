@@ -6,7 +6,7 @@
 #include <tf/transform_listener.h>                      //currently unused
 #include <tf/transform_broadcaster.h>                   //used to broadcast detections
 #include <visualization_msgs/Marker.h>                  //display markers on rviz
-#include <person_detector/NameLabel.h>
+#include <person_detector/DetectionObjectArray.h>       //our detections
 
 
 class person_detector_class

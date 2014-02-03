@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(person_detector)
 
+set(ROS_BUILD_TYPE Debug)
+set(CMAKE_BUILD_TYPE Debug)
+
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
@@ -8,6 +11,8 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   std_msgs
   std_srvs
+  tf
+  geometry_msgs
   message_generation
 )
 
@@ -47,8 +52,12 @@ find_package(catkin REQUIRED COMPONENTS
 ## Generate messages in the 'msg' folder
  add_message_files(
    FILES
-   Detection.msg
-   DetectionArray.msg
+   NameLabel.msg
+   RecognitionLabel.msg
+   SpeechConfirmation.msg
+   DetectionObject.msg
+   DetectionObjectArray.msg
+
 #   Message2.msg
  )
 
@@ -67,10 +76,11 @@ find_package(catkin REQUIRED COMPONENTS
 # )
 
 ## Generate added messages and services with any dependencies listed here
-# generate_messages(
-#   DEPENDENCIES
-#   std_msgs
-# )
+ generate_messages(
+   DEPENDENCIES
+   std_msgs
+   geometry_msgs
+ )
 
 ###################################
 ## catkin specific configuration ##
@@ -84,7 +94,7 @@ find_package(catkin REQUIRED COMPONENTS
 catkin_package(
   INCLUDE_DIRS include
 #  LIBRARIES person_detector
-  CATKIN_DEPENDS roscpp std_msgs std_srvs message_runtime
+  CATKIN_DEPENDS roscpp std_msgs std_srvs message_runtime tf
 #  DEPENDS system_lib
 )
 
