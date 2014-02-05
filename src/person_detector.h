@@ -45,6 +45,7 @@ private:
   std::queue<cob_people_detection_msgs::DetectionArray> detection_temp_storage_;
   bool detection_temp_storage_in_use_;
   person_detector::DetectionObjectArray all_detections_array_;
+  unsigned int detection_id;
   bool detection_array_in_use_;
 
   //functions
@@ -54,7 +55,7 @@ private:
   int updateDetection(cob_people_detection_msgs::Detection new_detection, unsigned int det_id);
   int findDistanceWinner_(std::vector< std::vector <double> > &distances, std::vector<unsigned int> &win_id, std::vector<double> &win_dist, unsigned int detection_array_size);
   int clearDoubleResults_(std::vector< std::vector <double> > &distances, std::vector<unsigned int> &win_id, std::vector<double> &win_dist, unsigned int detection_array_size);
-  int substractHit(std::string label);
+  int substractHit(std::string label, unsigned int leave_id);
   int cleanDetectionArray (ros::Duration oldness);
 
 public:

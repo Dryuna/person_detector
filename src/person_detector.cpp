@@ -77,7 +77,7 @@ void person_detector_class::allRecognitionsCallback_(const person_detector::Dete
       p.y = all_detections.detections[it].latest_pose_map.pose.position.y;
       p.z = all_detections.detections[it].latest_pose_map.pose.position.z;
       heads_.header.stamp = ros::Time::now();
-      heads_.id = all_detections.detections[it].latest_pose_map.header.seq;
+      heads_.id = all_detections.detections[it].header.seq;
       heads_.points.push_back(p);
       //change colour?
 
@@ -93,11 +93,10 @@ void person_detector_class::allRecognitionsCallback_(const person_detector::Dete
           int hits = 0;
           for (unsigned int in = 0; in < all_detections.detections[it].recognitions.name_array.size(); in++)
             {
-              if (all_detections.detections[it].recognitions.name_array[it].quantity > hits)
+              if (all_detections.detections[it].recognitions.name_array[in].quantity > hits)
                 {
-                  name = all_detections.detections[it].recognitions.name_array[it].label + " ";
-                  int percentage = (all_detections.detections[it].recognitions.name_array[it].quantity / all_detections.detections[it].recognitions.total_assigned)*100;
-                  ROS_INFO("I was here with name %s and percentage %i", name.c_str(),percentage);
+                  name = all_detections.detections[it].recognitions.name_array[in].label + " ";
+                  int percentage = (all_detections.detections[it].recognitions.name_array[in].quantity / all_detections.detections[it].recognitions.total_assigned)*100;
                   name += boost::lexical_cast<std::string>(percentage);
                 }
             }
@@ -107,7 +106,7 @@ void person_detector_class::allRecognitionsCallback_(const person_detector::Dete
           name += boost::lexical_cast<std::string>(cast) + "s";
         }
       heads_text_.header.stamp = ros::Time::now();
-      heads_text_.id = all_detections.detections[it].latest_pose_map.header.seq;
+      heads_text_.id = all_detections.detections[it].header.seq;
       heads_text_.text = name;
       heads_text_.pose.position.x = all_detections.detections[it].latest_pose_map.pose.position.x;
       heads_text_.pose.position.y = all_detections.detections[it].latest_pose_map.pose.position.y;
@@ -227,7 +226,7 @@ int person_detector_class::classifyDetections_( cob_people_detection_msgs::Detec
   }
   findDistanceWinner_(distances,win_id,win_dist,detection_array.detections.size());
   //check for double results
-  //clearDoubleResults
+  clearDoubleResults_(distances,win_id,win_dist,detection_array.detections.size());
 
   for (unsigned int in = 0; in < detection_array.detections.size(); in++)
   {
@@ -249,6 +248,8 @@ int person_detector_class::addNewDetection(cob_people_detection_msgs::Detection 
   person_detector::DetectionObject push_object;
   person_detector::NameLabel push_name;
   push_object.header.stamp = push_object.latest_pose_map.header.stamp = ros::Time::now();
+  push_object.header.seq = detection_id;
+  detection_id++;
   push_object.latest_pose_map.header.frame_id = "/map";
   push_object.total_detections = 1;
   push_object.latest_pose_map.pose.position.x = new_detection.pose.pose.position.x;
@@ -258,7 +259,7 @@ int person_detector_class::addNewDetection(cob_people_detection_msgs::Detection 
   push_object.confirmation.running = false;
   push_object.confirmation.suceeded = false;
   push_object.confirmation.tried = false;
-  if (new_detection.label != "UnknownHead")
+  if (new_detection.label != "UnknownHead" && new_detection.label != "Unknown")
   {
       push_name.label = new_detection.label;
       push_name.quantity = 1;
@@ -270,6 +271,7 @@ int person_detector_class::addNewDetection(cob_people_detection_msgs::Detection 
   push_object.recognitions.name_array.push_back(push_name);
   all_detections_array_.detections.push_back(push_object);
   all_detections_array_.header.stamp = ros::Time::now();
+  substractHit(new_detection.label,(all_detections_array_.detections.size()-1));
   all_detections_array_.header.seq++;
 }
 
@@ -290,7 +292,7 @@ int person_detector_class::updateDetection(cob_people_detection_msgs::Detection 
   //update or create a new nametag
   bool found = false;
   std::string it_label;
-  if (new_detection.label != "UnknownHead")
+  if (new_detection.label != "UnknownHead" && new_detection.label != "Unknown")
   {
     for (unsigned int it = 0; it < all_detections_array_.detections[det_id].recognitions.name_array.size(); it++)
     {
@@ -300,6 +302,8 @@ int person_detector_class::updateDetection(cob_people_detection_msgs::Detection 
           all_detections_array_.detections[det_id].recognitions.name_array[it].quantity++;
           all_detections_array_.detections[det_id].recognitions.total_assigned++;
           found = true;
+          ROS_INFO("Found a hit and now substracting of the rest");
+          substractHit(new_detection.label, det_id);
       }
     }
     if (!found)
@@ -309,6 +313,7 @@ int person_detector_class::updateDetection(cob_people_detection_msgs::Detection 
         push_name.quantity = 1;
         all_detections_array_.detections[det_id].recognitions.name_array.push_back(push_name);
         all_detections_array_.detections[det_id].recognitions.total_assigned++;
+        substractHit(new_detection.label, det_id);
       }
   }
   return 0;
@@ -339,41 +344,85 @@ int person_detector_class::clearDoubleResults_(std::vector< std::vector <double>
     return 0;
   }
   //if we have several new detections, we have to check, because we don't want to match results together
-  std::vector<unsigned int> same_ids;
-  for (unsigned int in = 0; in < detection_array_size; in++)
+  std::vector<bool> old_detect_avail (all_detections_array_.detections.size());
+  std::vector<bool> new_recogn_avail (win_id.size());
+  //populate with availability
+  for (unsigned int it = 0; it < all_detections_array_.detections.size(); it++)
   {
-      bool in_clear = false;
-      while (!in_clear)
-      {
-        same_ids.push_back(win_id[in]);
-        for (unsigned int in2 = 1; in < detection_array_size; in2++)
-          {
-            if (win_id[in] == win_id[in2])
-              {
-                same_ids.push_back(in2);
-              }
-          }
-        if (same_ids.size() < 2) {
-            in_clear = true;
-          } else
-          {
-            for (unsigned int ir = 0; ir < same_ids.size(); ir++)
-               {
-
-              }
-
-          }
-      }
-
-
+    old_detect_avail [it] = true;
+  }
+  for (unsigned int it = 0; it < win_id.size(); it++)
+  {
+    new_recogn_avail[it] = true;
   }
 
+  while (ros::ok())
+  {
+    //we're searching for the shortest distance first
+    double closest = 100000;
+    unsigned int clos_id = 0;
+    for (unsigned int in = 0; in < win_dist.size(); in++)
+    {
+      if (win_dist[in] < closest && old_detect_avail[win_id[in]] )
+      {
+        clos_id = in;
+        closest = win_dist[in];
+      }
+    }
+    //make the win_id unattractive for all other new detections
+    for (unsigned int it = 0; it < win_id.size(); it++)
+    {
+      if (it != clos_id)
+      {
+          distances[it][win_id[clos_id]] = 9999;
+      }
+    }
+    //set results as taken
+    old_detect_avail[win_id[clos_id]] = false;
+    new_recogn_avail[clos_id] = false;
+    //calculate new winners, now that we could exclude one
+    findDistanceWinner_(distances,win_id,win_dist,win_id.size());
+    //check, if we assigned all old detections
+    bool more_work = false;
+    for (unsigned int iw = 0; iw < old_detect_avail.size(); iw++)
+    {
+        if (old_detect_avail[iw] == true)
+          {
+            more_work = true;
+          }
+    }
+    if (!more_work)
+      {
+        return 0;
+      }
+    //check if we assigned all new recognitions
+    more_work = false;
+    for (unsigned int in = 0; in < win_id.size(); in++)
+    {
+      if (new_recogn_avail[in] == true)
+        {
+          more_work = true;
+        }
+    }
+    if (!more_work)
+      {
+        ROS_INFO("Finishing, because we assigned all new detections");
+        return 0;
+      }
+  }
 }
 
-int person_detector_class::substractHit(std::string label)
+
+
+int person_detector_class::substractHit(std::string label, unsigned int leave_id)
 {
   for (unsigned int it = 0; it < all_detections_array_.detections.size(); it++)
   {
+    //we have to leave the one out, we just found
+    if (it == leave_id)
+      {
+        break;
+      }
     for (unsigned int id = 0; id < all_detections_array_.detections[it].recognitions.name_array.size(); id++)
     {
       if (all_detections_array_.detections[it].recognitions.name_array[id].label == label)
@@ -470,6 +519,7 @@ person_detector_class::person_detector_class()
 
   //initialize array
   detection_array_in_use_ = false;
+  detection_id = 0;
 
 }
 
