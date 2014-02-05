@@ -1,0 +1,5 @@
+Header header
+uint16 total_detections
+geometry_msgs/PoseStamped latest_pose_map
+RecognitionLabel recognitions
+SpeechConfirmation confirmation
