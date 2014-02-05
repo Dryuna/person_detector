@@ -319,10 +319,10 @@ person_detector_class::person_detector_class()
 {
   //initialize ros-stuff
   sub_face_recognition_ = n_.subscribe("/cob_people_detection/detection_tracker/face_position_array",10, &person_detector_class::faceRecognitionCallback_,this);
-  pub_all_recognitions_ = n_.advertise<person_detector::DetectionObjectArray>("/robot_control/all_recognitions",10);
+  pub_all_recognitions_ = n_.advertise<person_detector::DetectionObjectArray>("/person_detector/all_recognitions",10);
   //initialize markers
-  human_marker_pub_ = n_.advertise<visualization_msgs::Marker>("robot_control/face_marker_raw",10);
-  human_marker_text_pub_ = n_.advertise<visualization_msgs::Marker>("robot_control/face_marker_text_raw",10);
+  human_marker_pub_ = n_.advertise<visualization_msgs::Marker>("/person_detector/face_marker_raw",10);
+  human_marker_text_pub_ = n_.advertise<visualization_msgs::Marker>("/person_detector/face_marker_text_raw",10);
 
   points.header.frame_id = "/camera_rgb_optical_frame";
   points.ns = "person_detector/face_marker";
