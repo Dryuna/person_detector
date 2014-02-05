@@ -17,6 +17,7 @@ private:
   ros::NodeHandle n_;
   ros::Subscriber sub_face_recognition_;
   ros::Publisher pub_all_recognitions_;
+  ros::Subscriber sub_all_recognitions_;
   //transformations
   tf::TransformListener tf_listener_;
   tf::StampedTransform transform_li_;
@@ -26,14 +27,19 @@ private:
   tf::Transform transform_br_map_;
 
   //markers for rviz
-  ros::Publisher human_marker_pub_;
+  ros::Publisher human_marker_raw_pub_;
   visualization_msgs::Marker points;
-  ros::Publisher human_marker_text_pub_;
+  ros::Publisher human_marker_raw_text_pub_;
   visualization_msgs::Marker face_text;
+  ros::Publisher pub_human_marker_;
+  visualization_msgs::Marker heads_;
+  ros::Publisher pub_human_marker_text_;
+  visualization_msgs::Marker heads_text_;
 
 
   //callbacks
   void faceRecognitionCallback_(const cob_people_detection_msgs::DetectionArray received_detections);
+  void allRecognitionsCallback_(const person_detector::DetectionObjectArray all_detections);
 
   //variables
   std::queue<cob_people_detection_msgs::DetectionArray> detection_temp_storage_;
@@ -48,6 +54,8 @@ private:
   int updateDetection(cob_people_detection_msgs::Detection new_detection, unsigned int det_id);
   int findDistanceWinner_(std::vector< std::vector <double> > &distances, std::vector<unsigned int> &win_id, std::vector<double> &win_dist, unsigned int detection_array_size);
   int clearDoubleResults_(std::vector< std::vector <double> > &distances, std::vector<unsigned int> &win_id, std::vector<double> &win_dist, unsigned int detection_array_size);
+  int substractHit(std::string label);
+  int cleanDetectionArray (ros::Duration oldness);
 
 public:
   person_detector_class();

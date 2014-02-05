@@ -46,7 +46,7 @@ void person_detector_class::faceRecognitionCallback_(const cob_people_detection_
         points.header.stamp = ros::Time::now();
         points.id = it;
         points.points.push_back(p);
-        human_marker_pub_.publish(points);
+        human_marker_raw_pub_.publish(points);
         points.points.clear();
 
         face_text.header.stamp = ros::Time::now();
@@ -55,9 +55,64 @@ void person_detector_class::faceRecognitionCallback_(const cob_people_detection_
         face_text.pose.position.x = temp_detections.detections[it].pose.pose.position.x;
         face_text.pose.position.y = temp_detections.detections[it].pose.pose.position.y;
         face_text.pose.position.z = temp_detections.detections[it].pose.pose.position.z+0.3;
-        human_marker_text_pub_.publish(face_text);
+        human_marker_raw_text_pub_.publish(face_text);
       }
       detection_temp_storage_.push(temp_detections);
+  }
+}
+
+void person_detector_class::allRecognitionsCallback_(const person_detector::DetectionObjectArray all_detections)
+{
+  //check if we don't have any recognitions
+  if (all_detections.detections.empty())
+  {
+    return;
+  }
+  geometry_msgs::Point p;
+  std::string name;
+  for (unsigned int it = 0; it < all_detections.detections.size(); it++)
+  {
+      //declare positions and stamp
+      p.x = all_detections.detections[it].latest_pose_map.pose.position.x;
+      p.y = all_detections.detections[it].latest_pose_map.pose.position.y;
+      p.z = all_detections.detections[it].latest_pose_map.pose.position.z;
+      heads_.header.stamp = ros::Time::now();
+      heads_.id = all_detections.detections[it].latest_pose_map.header.seq;
+      heads_.points.push_back(p);
+      //change colour?
+
+      pub_human_marker_.publish(heads_);
+      heads_.points.clear();
+      //make text
+      //find dominating name
+      if (all_detections.detections[it].recognitions.name_array.empty())
+        {
+          int sec = all_detections.detections[it].latest_pose_map.header.stamp.toSec();
+          name = "Unknown | " +  boost::lexical_cast<std::string>((sec)) + "s";
+        } else {
+          int hits = 0;
+          for (unsigned int in = 0; in < all_detections.detections[it].recognitions.name_array.size(); in++)
+            {
+              if (all_detections.detections[it].recognitions.name_array[it].quantity > hits)
+                {
+                  name = all_detections.detections[it].recognitions.name_array[it].label + " ";
+                  int percentage = (all_detections.detections[it].recognitions.name_array[it].quantity / all_detections.detections[it].recognitions.total_assigned)*100;
+                  ROS_INFO("I was here with name %s and percentage %i", name.c_str(),percentage);
+                  name += boost::lexical_cast<std::string>(percentage);
+                }
+            }
+          int cast = all_detections.detections[it].recognitions.total_assigned;
+          name += "% of " + boost::lexical_cast<std::string>(cast) + " | ";
+          cast = (ros::Time::now().toSec() - all_detections.detections[it].latest_pose_map.header.stamp.toSec());
+          name += boost::lexical_cast<std::string>(cast) + "s";
+        }
+      heads_text_.header.stamp = ros::Time::now();
+      heads_text_.id = all_detections.detections[it].latest_pose_map.header.seq;
+      heads_text_.text = name;
+      heads_text_.pose.position.x = all_detections.detections[it].latest_pose_map.pose.position.x;
+      heads_text_.pose.position.y = all_detections.detections[it].latest_pose_map.pose.position.y;
+      heads_text_.pose.position.z = all_detections.detections[it].latest_pose_map.pose.position.z+0.3;
+      pub_human_marker_text_.publish(heads_text_);
   }
 }
 
@@ -315,14 +370,61 @@ int person_detector_class::clearDoubleResults_(std::vector< std::vector <double>
 
 }
 
+int person_detector_class::substractHit(std::string label)
+{
+  for (unsigned int it = 0; it < all_detections_array_.detections.size(); it++)
+  {
+    for (unsigned int id = 0; id < all_detections_array_.detections[it].recognitions.name_array.size(); id++)
+    {
+      if (all_detections_array_.detections[it].recognitions.name_array[id].label == label)
+      {
+        if (all_detections_array_.detections[it].recognitions.name_array[id].quantity > 1)
+          {
+            all_detections_array_.detections[it].recognitions.name_array[id].quantity--;
+            all_detections_array_.detections[it].recognitions.total_assigned--;
+            all_detections_array_.detections[it].total_detections--;
+          }
+        else
+          {
+            all_detections_array_.detections[it].recognitions.name_array.erase(all_detections_array_.detections[it].recognitions.name_array.begin()+id );
+            all_detections_array_.detections[it].recognitions.total_assigned--;
+            all_detections_array_.detections[it].total_detections--;
+          }
+      }
+    }
+  }
+  return 0;
+}
+
+int person_detector_class::cleanDetectionArray(ros::Duration oldness)
+{
+  if (all_detections_array_.detections.empty())
+  {
+    return 0;
+  }
+  ros::Time present = ros::Time::now();
+  ros::Time time_stamp;
+  for (unsigned int it = 0; it < all_detections_array_.detections.size(); it++)
+  {
+      time_stamp = all_detections_array_.detections[it].latest_pose_map.header.stamp;
+      if(all_detections_array_.detections[it].recognitions.name_array.empty() && ((present - time_stamp) > oldness))
+        {
+          all_detections_array_.detections.erase(all_detections_array_.detections.begin()+it);
+        }
+  }
+}
+
 person_detector_class::person_detector_class()
 {
   //initialize ros-stuff
   sub_face_recognition_ = n_.subscribe("/cob_people_detection/detection_tracker/face_position_array",10, &person_detector_class::faceRecognitionCallback_,this);
   pub_all_recognitions_ = n_.advertise<person_detector::DetectionObjectArray>("/person_detector/all_recognitions",10);
+  sub_all_recognitions_ = n_.subscribe("/person_detector/all_recognitions",10, &person_detector_class::allRecognitionsCallback_,this);
   //initialize markers
-  human_marker_pub_ = n_.advertise<visualization_msgs::Marker>("/person_detector/face_marker_raw",10);
-  human_marker_text_pub_ = n_.advertise<visualization_msgs::Marker>("/person_detector/face_marker_text_raw",10);
+  human_marker_raw_pub_ = n_.advertise<visualization_msgs::Marker>("/person_detector/face_marker_raw",10);
+  human_marker_raw_text_pub_ = n_.advertise<visualization_msgs::Marker>("/person_detector/face_marker_text_raw",10);
+  pub_human_marker_ = n_.advertise<visualization_msgs::Marker>("/person_detector/human_marker",10);
+  pub_human_marker_text_ = n_.advertise<visualization_msgs::Marker>("/person_detector/human_marker_text",10);
 
   points.header.frame_id = "/camera_rgb_optical_frame";
   points.ns = "person_detector/face_marker";
@@ -346,6 +448,26 @@ person_detector_class::person_detector_class()
   face_text.color.r = 1.0f;
   face_text.color.a = 1.0;
 
+  heads_text_.header.frame_id = heads_.header.frame_id = "/map";
+  heads_.ns = "person_detector/humans";
+  heads_text_.lifetime = heads_.lifetime = ros::Duration(10);
+  heads_text_.action = heads_.action = visualization_msgs::Marker::ADD;
+  heads_.type = visualization_msgs::Marker::POINTS;
+  heads_.scale.x = 0.3;
+  heads_.scale.y = 0.3;
+  heads_.scale.z = 0.3;
+  heads_.color.r = 1.0;
+  heads_.color.a = 1.0;
+
+  heads_text_.ns = "person_detector/humans_text";
+  heads_text_.scale.z = 0.2;
+  heads_text_.color.r = 1.0;
+  heads_text_.color.g = 1.0;
+  heads_text_.color.a = 1.0;
+  heads_text_.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
+
+
+
   //initialize array
   detection_array_in_use_ = false;
 
@@ -363,6 +485,7 @@ int person_detector_class::run()
   {
     start = ros::Time::now();
     preprocessDetections_();
+    cleanDetectionArray(ros::Duration(100));
     end = ros::Time::now();
     difference = end-start;
     if (detection_temp_storage_.size() > 10) ROS_WARN("Our temporary storage is too big. It holds %i objects. Last circle took %f seconds.",detection_temp_storage_.size(),difference.toSec());
