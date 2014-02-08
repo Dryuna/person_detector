@@ -17,15 +17,15 @@ int main(int argc, char** argv)
 
 void person_detector_class::faceRecognitionCallback_(const cob_people_detection_msgs::DetectionArray received_detections)
 {
-  ROS_INFO("Added a detection to the detectionStorage");
+  ROS_DEBUG("Added a detection to the detectionStorage");
   cob_people_detection_msgs::DetectionArray temp_detections = received_detections;
-//  ROS_INFO("ROS Time in sec: %f, PersonDetection Time in sec: %f",ros::Time::now().toSec(),temp_detections.header.stamp.toSec());
+//  ROS_DEBUG("ROS Time in sec: %f, PersonDetection Time in sec: %f",ros::Time::now().toSec(),temp_detections.header.stamp.toSec());
 
   if (!temp_detections.detections.empty())
   {
       for (unsigned int it = 0; it < temp_detections.detections.size(); it++)
       {
-        ROS_INFO("Our new detection %i has the following lable: %s",it+1,temp_detections.detections[it].label.c_str());
+        ROS_DEBUG("Our new detection %i has the following lable: %s",it+1,temp_detections.detections[it].label.c_str());
         transform_br_.setOrigin(tf::Vector3(temp_detections.detections[it].pose.pose.position.x,
                                            temp_detections.detections[it].pose.pose.position.y,
                                            temp_detections.detections[it].pose.pose.position.z));
@@ -34,7 +34,7 @@ void person_detector_class::faceRecognitionCallback_(const cob_people_detection_
                                                 temp_detections.detections[it].pose.pose.orientation.y,
                                                 temp_detections.detections[it].pose.pose.orientation.z));
         std::string pose_name = "/person_detector/human_local_pose_raw_" + boost::lexical_cast<std::string>((it+1));
-        tf_local_human_broadcaster_.sendTransform(tf::StampedTransform(transform_br_,ros::Time::now(),"/camera_rgb_optical_frame",pose_name));
+        tf_human_local_broadcaster_.sendTransform(tf::StampedTransform(transform_br_,ros::Time::now(),"/camera_rgb_optical_frame",pose_name));
         //add tf to the object
         std_msgs::Header tempHeader;
         tempHeader.frame_id =  pose_name;
@@ -87,7 +87,7 @@ void person_detector_class::allRecognitionsCallback_(const person_detector::Dete
       //find dominating name
       if (all_detections.detections[it].recognitions.name_array.empty())
         {
-          int sec = all_detections.detections[it].latest_pose_map.header.stamp.toSec();
+          int sec = (ros::Time::now().toSec() - all_detections.detections[it].latest_pose_map.header.stamp.toSec());
           name = "Unknown | " +  boost::lexical_cast<std::string>((sec)) + "s";
         } else {
           int hits = 0;
@@ -96,14 +96,17 @@ void person_detector_class::allRecognitionsCallback_(const person_detector::Dete
               if (all_detections.detections[it].recognitions.name_array[in].quantity > hits)
                 {
                   name = all_detections.detections[it].recognitions.name_array[in].label + " ";
-                  int percentage = (all_detections.detections[it].recognitions.name_array[in].quantity / all_detections.detections[it].recognitions.total_assigned)*100;
+                  //ROS_DEBUG("Calculating percentage with quantity %i and total detections %",all_detections.detections[it].recognitions.name_array[in].quantity,all_detections.detections[it].total_detections);
+                  double percentage = ((all_detections.detections[it].recognitions.name_array[in].quantity) * 100 / all_detections.detections[it].total_detections);
                   name += boost::lexical_cast<std::string>(percentage);
+                  hits = all_detections.detections[it].recognitions.name_array[in].quantity;
                 }
             }
           int cast = all_detections.detections[it].recognitions.total_assigned;
+          //ROS_DEBUG("The major results name and percentage is %s",name.c_str());
           name += "% of " + boost::lexical_cast<std::string>(cast) + " | ";
-          cast = (ros::Time::now().toSec() - all_detections.detections[it].latest_pose_map.header.stamp.toSec());
-          name += boost::lexical_cast<std::string>(cast) + "s";
+          int sec = (ros::Time::now().toSec() - all_detections.detections[it].latest_pose_map.header.stamp.toSec());
+          name += boost::lexical_cast<std::string>(sec) + "s";
         }
       heads_text_.header.stamp = ros::Time::now();
       heads_text_.id = all_detections.detections[it].header.seq;
@@ -112,6 +115,17 @@ void person_detector_class::allRecognitionsCallback_(const person_detector::Dete
       heads_text_.pose.position.y = all_detections.detections[it].latest_pose_map.pose.position.y;
       heads_text_.pose.position.z = all_detections.detections[it].latest_pose_map.pose.position.z+0.3;
       pub_human_marker_text_.publish(heads_text_);
+
+      //broadcast the results on tf
+      transform_br_map_.setOrigin(tf::Vector3(all_detections.detections[it].latest_pose_map.pose.position.x,
+                                         all_detections.detections[it].latest_pose_map.pose.position.y,
+                                         all_detections.detections[it].latest_pose_map.pose.position.z));
+
+      transform_br_map_.setRotation(tf::Quaternion(all_detections.detections[it].latest_pose_map.pose.orientation.x,
+                                              all_detections.detections[it].latest_pose_map.pose.orientation.y,
+                                              all_detections.detections[it].latest_pose_map.pose.orientation.z));
+      std::string pose_name = "/person_detector/human_pose_" + boost::lexical_cast<std::string>((all_detections.detections[it].header.seq));
+      tf_map_human_broadcaster_.sendTransform(tf::StampedTransform(transform_br_map_,ros::Time::now(),"/map",pose_name));
   }
 }
 
@@ -147,7 +161,7 @@ int person_detector_class::preprocessDetections_()
           detection_temp_storage_.pop();
           return 1;
         }
-        ROS_INFO("The transform says for x: %f for y: %f and for z: %f",transform_li_.getOrigin().x(),transform_li_.getOrigin().y(),transform_li_.getOrigin().z());
+        ROS_DEBUG("The transform says for x: %f for y: %f and for z: %f",transform_li_.getOrigin().x(),transform_li_.getOrigin().y(),transform_li_.getOrigin().z());
         temporary_detection_array.detections[it].pose.header.frame_id = "/map";
         temporary_detection_array.detections[it].pose.pose.position.x = transform_li_.getOrigin().x();
         temporary_detection_array.detections[it].pose.pose.position.y = transform_li_.getOrigin().y();
@@ -164,7 +178,7 @@ int person_detector_class::preprocessDetections_()
                                                 temporary_detection_array.detections[it].pose.pose.orientation.y,
                                                 temporary_detection_array.detections[it].pose.pose.orientation.z));
         std::string pose_name = "/person_detector/human_pose_raw_" +  boost::lexical_cast<std::string>((it+1));
-        tf_local_human_broadcaster_.sendTransform(tf::StampedTransform(transform_br_map_,ros::Time::now(),"/map",pose_name));
+        tf_human_local_broadcaster_.sendTransform(tf::StampedTransform(transform_br_map_,ros::Time::now(),"/map",pose_name));
       }
       //push object to the classification
       classifyDetections_( temporary_detection_array);
@@ -191,11 +205,11 @@ int person_detector_class::classifyDetections_( cob_people_detection_msgs::Detec
     for (unsigned int it = 0; it < detection_array.detections.size(); it++)
     {
       addNewDetection(detection_array.detections[it]);
-      ROS_INFO("First detection - added a new one");
+      ROS_DEBUG("First detection - added a new one");
     }
     return 0;
   }
-  ROS_INFO("Started distance calculation");
+  ROS_DEBUG("Started distance calculation");
   //try to find a corresponging match within a distance of x cm
   double max_dist_m = 0.50;
   std::vector< std::vector <double> > distances (detection_array.detections.size(), std::vector<double>(all_detections_array_.detections.size()));
@@ -216,7 +230,7 @@ int person_detector_class::classifyDetections_( cob_people_detection_msgs::Detec
   //////////////////
   //find the winner
   //////////////////
-  ROS_INFO("Searching for the winner");
+  ROS_DEBUG("Searching for the winner");
   std::vector<unsigned int> win_id (detection_array.detections.size());
   std::vector<double> win_dist (detection_array.detections.size());
   //populate vector with incredible high values
@@ -244,7 +258,7 @@ int person_detector_class::classifyDetections_( cob_people_detection_msgs::Detec
 
 int person_detector_class::addNewDetection(cob_people_detection_msgs::Detection new_detection)
 {
-  ROS_INFO("Addind a new detection");
+  ROS_DEBUG("Addind a new detection");
   person_detector::DetectionObject push_object;
   person_detector::NameLabel push_name;
   push_object.header.stamp = push_object.latest_pose_map.header.stamp = ros::Time::now();
@@ -277,7 +291,7 @@ int person_detector_class::addNewDetection(cob_people_detection_msgs::Detection 
 
 int person_detector_class::updateDetection(cob_people_detection_msgs::Detection new_detection, unsigned int det_id)
 {
-  ROS_INFO("Updating a detection");
+  ROS_DEBUG("Updating a detection");
   //update general stuff
   all_detections_array_.header.stamp = ros::Time::now();
   all_detections_array_.header.seq++;
@@ -302,7 +316,7 @@ int person_detector_class::updateDetection(cob_people_detection_msgs::Detection 
           all_detections_array_.detections[det_id].recognitions.name_array[it].quantity++;
           all_detections_array_.detections[det_id].recognitions.total_assigned++;
           found = true;
-          ROS_INFO("Found a hit and now substracting of the rest");
+          ROS_DEBUG("Found a hit and now substracting of the rest");
           substractHit(new_detection.label, det_id);
       }
     }
@@ -406,7 +420,7 @@ int person_detector_class::clearDoubleResults_(std::vector< std::vector <double>
     }
     if (!more_work)
       {
-        ROS_INFO("Finishing, because we assigned all new detections");
+        ROS_DEBUG("Finishing, because we assigned all new detections");
         return 0;
       }
   }
@@ -419,28 +433,27 @@ int person_detector_class::substractHit(std::string label, unsigned int leave_id
   for (unsigned int it = 0; it < all_detections_array_.detections.size(); it++)
   {
     //we have to leave the one out, we just found
-    if (it == leave_id)
+    if (it != leave_id)
       {
-        break;
-      }
-    for (unsigned int id = 0; id < all_detections_array_.detections[it].recognitions.name_array.size(); id++)
-    {
-      if (all_detections_array_.detections[it].recognitions.name_array[id].label == label)
-      {
-        if (all_detections_array_.detections[it].recognitions.name_array[id].quantity > 1)
+        for (unsigned int id = 0; id < all_detections_array_.detections[it].recognitions.name_array.size(); id++)
+        {
+          if (all_detections_array_.detections[it].recognitions.name_array[id].label == label)
           {
-            all_detections_array_.detections[it].recognitions.name_array[id].quantity--;
-            all_detections_array_.detections[it].recognitions.total_assigned--;
-            all_detections_array_.detections[it].total_detections--;
+            if (all_detections_array_.detections[it].recognitions.name_array[id].quantity > 1)
+              {
+                all_detections_array_.detections[it].recognitions.name_array[id].quantity--;
+                all_detections_array_.detections[it].recognitions.total_assigned--;
+                all_detections_array_.detections[it].total_detections--;
+              }
+            else
+              {
+                all_detections_array_.detections[it].recognitions.name_array.erase(all_detections_array_.detections[it].recognitions.name_array.begin()+id );
+                all_detections_array_.detections[it].recognitions.total_assigned--;
+                all_detections_array_.detections[it].total_detections--;
+              }
           }
-        else
-          {
-            all_detections_array_.detections[it].recognitions.name_array.erase(all_detections_array_.detections[it].recognitions.name_array.begin()+id );
-            all_detections_array_.detections[it].recognitions.total_assigned--;
-            all_detections_array_.detections[it].total_detections--;
-          }
+        }
       }
-    }
   }
   return 0;
 }
@@ -535,7 +548,7 @@ int person_detector_class::run()
   {
     start = ros::Time::now();
     preprocessDetections_();
-    cleanDetectionArray(ros::Duration(100));
+    cleanDetectionArray(ros::Duration(60));
     end = ros::Time::now();
     difference = end-start;
     if (detection_temp_storage_.size() > 10) ROS_WARN("Our temporary storage is too big. It holds %i objects. Last circle took %f seconds.",detection_temp_storage_.size(),difference.toSec());

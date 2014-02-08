@@ -21,7 +21,7 @@ private:
   //transformations
   tf::TransformListener tf_listener_;
   tf::StampedTransform transform_li_;
-  tf::TransformBroadcaster tf_local_human_broadcaster_;
+  tf::TransformBroadcaster tf_human_local_broadcaster_;
   tf::Transform transform_br_;
   tf::TransformBroadcaster tf_map_human_broadcaster_;
   tf::Transform transform_br_map_;
