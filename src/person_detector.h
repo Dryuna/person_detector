@@ -9,6 +9,10 @@
 #include <visualization_msgs/Marker.h>                  //display markers on rviz
 #include <person_detector/DetectionObjectArray.h>       //our detections
 #include <person_detector/DetectionObject.h>            //used for a single detection
+#include <nav_msgs/OccupancyGrid.h>                     //the map format
+#include <costmap_2d/layer.h>              //to use a costmap
+#include <costmap_2d/costmap_2d_ros.h>     //to use a costmap
+#include <sensor_msgs/Imu.h>                // to get information about the rotation
 
 class person_detector_class
 {
@@ -18,6 +22,10 @@ private:
   ros::Subscriber sub_face_recognition_;
   ros::Publisher pub_all_recognitions_;
   ros::Subscriber sub_all_recognitions_;
+  ros::Subscriber sub_map_;
+  ros::Subscriber sub_local_costmap_;
+  ros::Subscriber sub_obstacles_;
+  ros::Subscriber sub_imu_;
   //transformations
   tf::TransformListener tf_listener_;
   tf::StampedTransform transform_li_;
@@ -40,6 +48,10 @@ private:
   //callbacks
   void faceRecognitionCallback_(const cob_people_detection_msgs::DetectionArray received_detections);
   void allRecognitionsCallback_(const person_detector::DetectionObjectArray all_detections);
+  void mapCallback_(const nav_msgs::OccupancyGrid received_map);
+  void localCostmapCallback_ (const nav_msgs::OccupancyGrid received);
+  void obstaclesCallback_ (const sensor_msgs::PointCloud pcl);
+  void imuCallback_(const sensor_msgs::Imu imu);
 
   //variables
   std::queue<cob_people_detection_msgs::DetectionArray> detection_temp_storage_;
@@ -47,6 +59,14 @@ private:
   person_detector::DetectionObjectArray all_detections_array_;
   unsigned int detection_id;
   bool detection_array_in_use_;
+  costmap_2d::Costmap2D static_map;
+  costmap_2d::Costmap2DPublisher *pub_static_map;
+  costmap_2d::Costmap2D updated_map;
+  costmap_2d::Costmap2DPublisher *pub_updated_map;
+  bool map_initialized_;
+  costmap_2d::Costmap2D difference_map_;
+  costmap_2d::Costmap2DPublisher *pub_difference_map;
+  double imu_ang_vel_z;
 
   //functions
   int preprocessDetections_();
@@ -56,7 +76,10 @@ private:
   int findDistanceWinner_(std::vector< std::vector <double> > &distances, std::vector<unsigned int> &win_id, std::vector<double> &win_dist, unsigned int detection_array_size);
   int clearDoubleResults_(std::vector< std::vector <double> > &distances, std::vector<unsigned int> &win_id, std::vector<double> &win_dist, unsigned int detection_array_size);
   int substractHit(std::string label, unsigned int leave_id);
-  int cleanDetectionArray (ros::Duration oldness);
+  int cleanDetectionArray_ (ros::Duration oldness);
+  int generateDifferenceMap();
+
+
 
 public:
   person_detector_class();

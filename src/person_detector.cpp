@@ -1,9 +1,9 @@
 #include "person_detector.h"
 #include <ros/ros.h>
 #include <ros/time.h>
-#include <cob_people_detection_msgs/DetectionArray.h>
+#include <cob_people_detection_msgs/DetectionArray.h> //to process the detectionarrays provided by the cob-people-perception
 #include <std_msgs/String.h>
-#include <boost/lexical_cast.hpp>   //to cast the integer
+#include <boost/lexical_cast.hpp>          //to cast the integer
 
 
 int main(int argc, char** argv)
@@ -194,6 +194,121 @@ int person_detector_class::preprocessDetections_()
 
 //  rp.sleep();
 //  }
+}
+
+void person_detector_class::mapCallback_(const nav_msgs::OccupancyGrid received_map)
+{
+  //initialize map
+  static_map.resizeMap(received_map.info.width,received_map.info.height,received_map.info.resolution,received_map.info.origin.position.x,received_map.info.origin.position.y);
+  updated_map.resizeMap(received_map.info.width,received_map.info.height,received_map.info.resolution,received_map.info.origin.position.x,received_map.info.origin.position.y);
+  difference_map_.resizeMap(received_map.info.width,received_map.info.height,received_map.info.resolution,received_map.info.origin.position.x,received_map.info.origin.position.y);
+  //set costs for static map and reset the updated map
+  std::vector<signed char, std::allocator<signed char> >::const_iterator id = received_map.data.begin();
+  for (int ih = 0; ih < received_map.info.height; ih++)
+  {
+      for (unsigned int iw = 0; iw < received_map.info.width; iw++)
+        {
+            static_map.setCost(iw,ih,*id);
+            updated_map.setCost(iw,ih,costmap_2d::NO_INFORMATION);
+            id++;
+        }
+  }
+  //publish static map
+  std::string map_name = "person_detector/static_map";
+  std::string map_frame = received_map.header.frame_id;
+  pub_static_map = new costmap_2d::Costmap2DPublisher(&n_,&static_map,map_frame,map_name,false);
+  pub_static_map->publishCostmap();
+  //update the updated map
+
+  //reset map with "no-information"
+    //updated_map.resetMap(0,0,received_map.info.width,received_map.info.height);
+  pub_updated_map->publishCostmap();
+  pub_difference_map->publishCostmap();
+  map_initialized_ = true;
+
+}
+
+void person_detector_class::localCostmapCallback_(const nav_msgs::OccupancyGrid received)
+{
+  //exit, if we are not ready to receive updates
+  if (!map_initialized_) return;
+
+  //integrate result into updated_map
+  double x_diff = received.info.origin.position.x - updated_map.getOriginX();
+  double y_diff = received.info.origin.position.y - updated_map.getOriginY();
+  double map_res = updated_map.getResolution();
+  double rec_res = received.info.resolution;
+  unsigned int point_map_x = x_diff / map_res;
+  unsigned int point_map_y = y_diff / map_res;
+  unsigned int rows = 0;
+  int state = 0;
+  //for (std::vector<signed char, std::allocator<signed char> >::const_iterator it = received.data.begin(); it != received.data.end(); it++)
+  std::vector<signed char, std::allocator<signed char> >::const_iterator it = received.data.begin();
+  for (unsigned int row = 0; row < received.info.height; row++)
+    {
+      for (unsigned col = 0; col < (received.info.width); col++)
+        {
+          if (*it == 100) state = costmap_2d::LETHAL_OBSTACLE; // is occupied
+          else state = costmap_2d::FREE_SPACE;
+
+          //update this and the sorrounding
+          updated_map.setCost(point_map_x,point_map_y,state);
+//          updated_map.setCost(point_map_x-1,point_map_y-1,state);
+//          updated_map.setCost(point_map_x-1,point_map_y,state);
+//          updated_map.setCost(point_map_x-1,point_map_y+1,state);
+//          updated_map.setCost(point_map_x,point_map_y-1,state);
+//          updated_map.setCost(point_map_x,point_map_y+1,state);
+//          updated_map.setCost(point_map_x+1,point_map_y-1,state);
+//          updated_map.setCost(point_map_x+1,point_map_y,state);
+//          updated_map.setCost(point_map_x+1,point_map_y+1,state);
+
+          point_map_x = (x_diff + ((col+1)*rec_res)) / map_res;
+          it++;
+        }
+      rows++;
+      point_map_y = (y_diff + (row+1)*rec_res) / map_res;
+      //reset point_map_x
+      point_map_x = (x_diff / map_res);
+  }
+//  pub_updated_map->publishCostmap();
+}
+
+void person_detector_class::obstaclesCallback_(const sensor_msgs::PointCloud pcl)
+{
+  //we don't do anything if the map is not initialized
+  if (!map_initialized_) return;
+
+  double map_orig_x = updated_map.getOriginX();
+  double map_orig_y = updated_map.getOriginY();
+  double map_res = updated_map.getResolution();
+  double x_diff;
+  double y_diff;
+  int point_x;
+  int point_y;
+  for (std::vector<geometry_msgs::Point32>::const_iterator it = pcl.points.begin(); it != pcl.points.end(); it++)
+    {
+      if (imu_ang_vel_z != 0) return; //the data is useless, if we turn
+      //find the points
+      x_diff = it->x - map_orig_x;
+      y_diff = it->y - map_orig_y;
+      point_x = x_diff / map_res;
+      point_y = y_diff / map_res;
+      //update points
+//      updated_map.setCost(point_x-1,point_y-1,costmap_2d::LETHAL_OBSTACLE);
+//      updated_map.setCost(point_x-1,point_y,costmap_2d::LETHAL_OBSTACLE);
+//      updated_map.setCost(point_x-1,point_y+1,costmap_2d::LETHAL_OBSTACLE);
+//      updated_map.setCost(point_x,point_y-1,costmap_2d::LETHAL_OBSTACLE);
+      updated_map.setCost(point_x,point_y,costmap_2d::LETHAL_OBSTACLE);
+//      updated_map.setCost(point_x,point_y+1,costmap_2d::LETHAL_OBSTACLE);
+//      updated_map.setCost(point_x+1,point_y-1,costmap_2d::LETHAL_OBSTACLE);
+//      updated_map.setCost(point_x+1,point_y,costmap_2d::LETHAL_OBSTACLE);
+//      updated_map.setCost(point_x+1,point_y+2,costmap_2d::LETHAL_OBSTACLE);
+    }
+}
+
+void person_detector_class::imuCallback_(const sensor_msgs::Imu imu)
+{
+  imu_ang_vel_z = imu.angular_velocity.z;
 }
 
 int person_detector_class::classifyDetections_( cob_people_detection_msgs::DetectionArray detection_array )
@@ -426,8 +541,6 @@ int person_detector_class::clearDoubleResults_(std::vector< std::vector <double>
   }
 }
 
-
-
 int person_detector_class::substractHit(std::string label, unsigned int leave_id)
 {
   for (unsigned int it = 0; it < all_detections_array_.detections.size(); it++)
@@ -458,7 +571,7 @@ int person_detector_class::substractHit(std::string label, unsigned int leave_id
   return 0;
 }
 
-int person_detector_class::cleanDetectionArray(ros::Duration oldness)
+int person_detector_class::cleanDetectionArray_(ros::Duration oldness)
 {
   if (all_detections_array_.detections.empty())
   {
@@ -476,12 +589,31 @@ int person_detector_class::cleanDetectionArray(ros::Duration oldness)
   }
 }
 
+int person_detector_class::generateDifferenceMap()
+{
+  for (unsigned int ix = 0; ix < static_map.getSizeInCellsX(); ix++)
+    {
+      for (unsigned int iy = 0; iy < static_map.getSizeInCellsY(); iy++)
+        {
+          if (updated_map.getCost(ix,iy) == costmap_2d::LETHAL_OBSTACLE && static_map.getCost(ix,iy) == costmap_2d::FREE_SPACE)
+            {
+              difference_map_.setCost(ix,iy,costmap_2d::LETHAL_OBSTACLE);
+            }
+          else
+            {
+              difference_map_.setCost(ix,iy,costmap_2d::FREE_SPACE);
+            }
+        }
+    }
+}
+
 person_detector_class::person_detector_class()
 {
   //initialize ros-stuff
   sub_face_recognition_ = n_.subscribe("/cob_people_detection/detection_tracker/face_position_array",10, &person_detector_class::faceRecognitionCallback_,this);
   pub_all_recognitions_ = n_.advertise<person_detector::DetectionObjectArray>("/person_detector/all_recognitions",10);
   sub_all_recognitions_ = n_.subscribe("/person_detector/all_recognitions",10, &person_detector_class::allRecognitionsCallback_,this);
+  sub_imu_ = n_.subscribe("/mobile_base/sensors/imu_data",10,&person_detector_class::imuCallback_,this);
   //initialize markers
   human_marker_raw_pub_ = n_.advertise<visualization_msgs::Marker>("/person_detector/face_marker_raw",10);
   human_marker_raw_text_pub_ = n_.advertise<visualization_msgs::Marker>("/person_detector/face_marker_text_raw",10);
@@ -528,32 +660,72 @@ person_detector_class::person_detector_class()
   heads_text_.color.a = 1.0;
   heads_text_.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
 
-
-
   //initialize array
   detection_array_in_use_ = false;
   detection_id = 0;
 
+  //maps
+  sub_map_ = n_.subscribe("/map",10,&person_detector_class::mapCallback_,this);
+  sub_local_costmap_ = n_.subscribe("/move_base/local_costmap/costmap", 10, &person_detector_class::localCostmapCallback_,this);
+  sub_obstacles_ = n_.subscribe("/move_base/global_costmap/obstacle_layer/clearing_endpoints",10,&person_detector_class::obstaclesCallback_,this);
+  map_initialized_ = false;
+
+  //updated_map
+  updated_map.resizeMap(10,10,1,0,0);
+  updated_map.updateOrigin(0,0);
+  std::string map_frame = "map";
+  std::string updated_map_name = "person_detector/updated_map";
+  for (unsigned int ih = 0; ih < 10; ih++)
+    {
+      for (unsigned int iw = 0; iw < 5; iw++)
+        {
+          updated_map.setCost(ih,iw,costmap_2d::NO_INFORMATION);
+        }
+    }
+  pub_updated_map = new costmap_2d::Costmap2DPublisher(&n_,&updated_map,map_frame,updated_map_name,true);
+  pub_updated_map->publishCostmap();
+  //difference_map
+  difference_map_.resizeMap(10,10,1,0,0);
+  difference_map_.updateOrigin(0,0);
+  std::string difference_map_name = "person_detector/difference_map";
+  pub_difference_map = new costmap_2d::Costmap2DPublisher(&n_,&difference_map_,map_frame,difference_map_name,true);
+  pub_difference_map->publishCostmap();
+
+  imu_ang_vel_z = 0;
 }
 
 int person_detector_class::run()
 {
   // An extra thread to do the processing of incoming data
  // boost::thread process_thread_object (&person_detector_class::processDetections, this);
-  ros::Rate r(100);
+  ros::Rate r(1);
   ros::Time start;
   ros::Time end;
   ros::Duration difference;
+
   while (ros::ok())
   {
     start = ros::Time::now();
     preprocessDetections_();
-    cleanDetectionArray(ros::Duration(60));
+    cleanDetectionArray_(ros::Duration(60));
     end = ros::Time::now();
     difference = end-start;
-    if (detection_temp_storage_.size() > 10) ROS_WARN("Our temporary storage is too big. It holds %i objects. Last circle took %f seconds.",detection_temp_storage_.size(),difference.toSec());
+    ROS_WARN_COND(detection_temp_storage_.size() > 10,"Our temporary storage is too big. It holds %i objects. Last circle took %f seconds.",detection_temp_storage_.size(),difference.toSec());
     //do crazy stuff
     r.sleep();
     ros::spinOnce();
+//    if (map_initialized_)
+//      {
+//        for (int it = 0; it < 500; it++)
+//          {
+//            for (int ii = 0; ii < 50; ii++)
+//              {
+//                updated_map.setCost(it,ii,costmap_2d::LETHAL_OBSTACLE);
+//              }
+//          }
+//      }
+    generateDifferenceMap();
+    pub_difference_map->publishCostmap();
+    pub_updated_map->publishCostmap();
   }
 }

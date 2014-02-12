@@ -14,6 +14,7 @@ find_package(catkin REQUIRED COMPONENTS
   tf
   geometry_msgs
   message_generation
+  costmap_2d
 )
 
 ## System dependencies are found with CMake's conventions
