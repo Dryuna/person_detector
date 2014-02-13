@@ -78,6 +78,7 @@ private:
   int substractHit(std::string label, unsigned int leave_id);
   int cleanDetectionArray_ (ros::Duration oldness);
   int generateDifferenceMap();
+  int inflateMap();
 
 
 

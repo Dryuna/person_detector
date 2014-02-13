@@ -161,6 +161,14 @@ int person_detector_class::preprocessDetections_()
           detection_temp_storage_.pop();
           return 1;
         }
+        catch (tf::ExtrapolationException ex)
+        {
+          ROS_ERROR("%s",ex.what());
+          ROS_ERROR("Not using this detection.");
+          detection_temp_storage_.pop();
+          return 1;
+        }
+
         ROS_DEBUG("The transform says for x: %f for y: %f and for z: %f",transform_li_.getOrigin().x(),transform_li_.getOrigin().y(),transform_li_.getOrigin().z());
         temporary_detection_array.detections[it].pose.header.frame_id = "/map";
         temporary_detection_array.detections[it].pose.pose.position.x = transform_li_.getOrigin().x();
@@ -213,6 +221,7 @@ void person_detector_class::mapCallback_(const nav_msgs::OccupancyGrid received_
             id++;
         }
   }
+  inflateMap();
   //publish static map
   std::string map_name = "person_detector/static_map";
   std::string map_frame = received_map.header.frame_id;
@@ -373,7 +382,7 @@ int person_detector_class::classifyDetections_( cob_people_detection_msgs::Detec
 
 int person_detector_class::addNewDetection(cob_people_detection_msgs::Detection new_detection)
 {
-  ROS_DEBUG("Addind a new detection");
+  ROS_INFO("Addind a new detection");
   person_detector::DetectionObject push_object;
   person_detector::NameLabel push_name;
   push_object.header.stamp = push_object.latest_pose_map.header.stamp = ros::Time::now();
@@ -485,8 +494,16 @@ int person_detector_class::clearDoubleResults_(std::vector< std::vector <double>
     new_recogn_avail[it] = true;
   }
 
+  //safety exit from the loop
+  ros::Time start = ros::Time::now();
+  ros::Duration max_time = ros::Duration(5);
   while (ros::ok())
   {
+    if ((ros::Time::now()-start) > max_time)
+    {
+      ROS_WARN("Safety exit from the clear double result. This should not happen!");
+      return -1;
+    }
     //we're searching for the shortest distance first
     double closest = 100000;
     unsigned int clos_id = 0;
@@ -587,6 +604,44 @@ int person_detector_class::cleanDetectionArray_(ros::Duration oldness)
           all_detections_array_.detections.erase(all_detections_array_.detections.begin()+it);
         }
   }
+}
+
+int person_detector_class::inflateMap()
+{
+  std::vector<unsigned int> lethal_ix;
+  std::vector<unsigned int> lethal_iy;
+  for (unsigned int ix = 1; ix < (static_map.getSizeInMetersX()-1); ix++)
+  {
+    for (unsigned int iy = 1; iy < (static_map.getSizeInCellsY()-1); iy++)
+    {
+
+        if (static_map.getCost(ix,iy))
+        {
+          //add to vector
+          lethal_ix.push_back(ix);
+          lethal_iy.push_back(iy);
+        }
+    }
+  }
+  unsigned int lat_x;
+  unsigned int lat_y;
+  //now that we found all lethal points, we can inflate
+  while (!lethal_ix.empty() || !lethal_iy.empty())
+  {
+    lat_x = lethal_ix.back();
+    lat_y = lethal_iy.back();
+    static_map.setCost(lat_x-1,lat_y-1,costmap_2d::LETHAL_OBSTACLE);
+    static_map.setCost(lat_x-1,lat_y,costmap_2d::LETHAL_OBSTACLE);
+    static_map.setCost(lat_x-1,lat_y+1,costmap_2d::LETHAL_OBSTACLE);
+    static_map.setCost(lat_x,lat_y-1,costmap_2d::LETHAL_OBSTACLE);
+    static_map.setCost(lat_x,lat_y+1,costmap_2d::LETHAL_OBSTACLE);
+    static_map.setCost(lat_x+1,lat_y-1,costmap_2d::LETHAL_OBSTACLE);
+    static_map.setCost(lat_x+1,lat_y,costmap_2d::LETHAL_OBSTACLE);
+    static_map.setCost(lat_x+1,lat_y+1,costmap_2d::LETHAL_OBSTACLE);
+    lethal_ix.pop_back();
+    lethal_iy.pop_back();
+  }
+  return 0;
 }
 
 int person_detector_class::generateDifferenceMap()
