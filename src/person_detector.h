@@ -3,16 +3,18 @@
 #include <ros/ros.h>                                    //general ROS-functionalities
 #include <cob_people_detection_msgs/DetectionArray.h>   //Message type for the cob_people_detection_topic
 #include <queue>                                       //used to store the detections
-#include <vector>
+#include <vector>                                       //used for AMCL
 #include <tf/transform_listener.h>                      //currently unused
 #include <tf/transform_broadcaster.h>                   //used to broadcast detections
 #include <visualization_msgs/Marker.h>                  //display markers on rviz
 #include <person_detector/DetectionObjectArray.h>       //our detections
 #include <person_detector/DetectionObject.h>            //used for a single detection
+#include <person_detector/SpeechConfirmation.h>         //for speech confirmations we receive
 #include <nav_msgs/OccupancyGrid.h>                     //the map format
 #include <costmap_2d/layer.h>              //to use a costmap
 #include <costmap_2d/costmap_2d_ros.h>     //to use a costmap
 #include <sensor_msgs/Imu.h>                // to get information about the rotation
+#include <geometry_msgs/PoseWithCovarianceStamped.h>    //for amcl
 
 class person_detector_class
 {
@@ -26,6 +28,8 @@ private:
   ros::Subscriber sub_local_costmap_;
   ros::Subscriber sub_obstacles_;
   ros::Subscriber sub_imu_;
+  ros::Subscriber sub_confirmations_;
+  ros::Subscriber sub_amcl_;
   //transformations
   tf::TransformListener tf_listener_;
   tf::StampedTransform transform_li_;
@@ -33,6 +37,7 @@ private:
   tf::Transform transform_br_;
   tf::TransformBroadcaster tf_map_human_broadcaster_;
   tf::Transform transform_br_map_;
+  ros::Duration tf_cache;
 
   //markers for rviz
   ros::Publisher human_marker_raw_pub_;
@@ -52,6 +57,8 @@ private:
   void localCostmapCallback_ (const nav_msgs::OccupancyGrid received);
   void obstaclesCallback_ (const sensor_msgs::PointCloud pcl);
   void imuCallback_(const sensor_msgs::Imu imu);
+  void confirmationCallback_(const person_detector::SpeechConfirmation conf);
+  void amclCallback_(const geometry_msgs::PoseWithCovarianceStamped pose);
 
   //variables
   std::queue<cob_people_detection_msgs::DetectionArray> detection_temp_storage_;
@@ -67,6 +74,8 @@ private:
   costmap_2d::Costmap2D difference_map_;
   costmap_2d::Costmap2DPublisher *pub_difference_map;
   double imu_ang_vel_z;
+  std::queue<person_detector::SpeechConfirmation> conf_queue_;
+  std::vector<geometry_msgs::PoseWithCovarianceStamped> amcl_poses_;
 
   //functions
   int preprocessDetections_();
@@ -79,6 +88,8 @@ private:
   int cleanDetectionArray_ (ros::Duration oldness);
   int generateDifferenceMap();
   int inflateMap();
+  int processConfirmations_();
+  bool findAmclPose_ (geometry_msgs::PoseWithCovarianceStamped &pose, ros::Time stamp);
 
 
 

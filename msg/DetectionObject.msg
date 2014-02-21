@@ -1,5 +1,6 @@
 Header header
 uint16 total_detections
 geometry_msgs/PoseStamped latest_pose_map
+geometry_msgs/PoseWithCovarianceStamped  last_seen_from
 RecognitionLabel recognitions
 SpeechConfirmation confirmation

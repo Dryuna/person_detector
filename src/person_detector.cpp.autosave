@@ -390,7 +390,7 @@ void person_detector_class::confirmationCallback_(const person_detector::SpeechC
 void person_detector_class::amclCallback_(const geometry_msgs::PoseWithCovarianceStamped pose)
 {
   amcl_poses_.push_back(pose);
-  if (amcl_poses_.size() > 20)
+  if (amcl_poses_.size() > 30)
   {
     amcl_poses_.erase(amcl_poses_.begin());
   }
@@ -751,40 +751,37 @@ int person_detector_class::generateDifferenceMap()
 
 int person_detector_class::processConfirmations_()
 {
-  if (!conf_queue_.empty())
+  person_detector::SpeechConfirmation act;
+  while (!conf_queue_.empty())
   {
-    person_detector::SpeechConfirmation act;
-    while (!conf_queue_.empty())
+    act = conf_queue_.front();
+    conf_queue_.pop();
+    //search for id
+    for (unsigned int it = 0; it < all_detections_array_.detections.size(); it++)
     {
-      act = conf_queue_.front();
-      conf_queue_.pop();
-      //search for id
+        // if it's the right, put information in there
+        if (all_detections_array_.detections[it].header.seq == act.id)
+        {
+            all_detections_array_.detections[it].confirmation = act;
+            break;
+        }
+    }
+    //if we were successfull, delete other detections of that person
+    if (act.suceeded)
+    {
       for (unsigned int it = 0; it < all_detections_array_.detections.size(); it++)
       {
-          // if it's the right, put information in there
-          if (all_detections_array_.detections[it].header.seq == act.id)
+        if (all_detections_array_.detections[it].header.seq != act.id)
           {
-              all_detections_array_.detections[it].confirmation = act;
-              break;
-          }
-      }
-      //if we were successfull, delete other detections of that person
-      if (act.suceeded)
-      {
-        for (unsigned int it = 0; it < all_detections_array_.detections.size(); it++)
-        {
-          if (all_detections_array_.detections[it].header.seq != act.id)
+            //go through all name_array
+            for (unsigned int in = 0; in < all_detections_array_.detections[it].recognitions.name_array.size(); in++)
             {
-              //go through all name_array
-              for (unsigned int in = 0; in < all_detections_array_.detections[it].recognitions.name_array.size(); in++)
-              {
-                  if (act.label == all_detections_array_.detections[it].recognitions.name_array[in].label)
-                  {
-                      all_detections_array_.detections[it].recognitions.name_array.erase(all_detections_array_.detections[it].recognitions.name_array.begin()+in);
-                  }
-              }
+                if (act.label == all_detections_array_.detections[it].recognitions.name_array[in].label)
+                {
+                    all_detections_array_.detections[it].recognitions.name_array.erase(all_detections_array_.detections[it].recognitions.name_array.begin()+in);
+                }
             }
-        }
+          }
       }
     }
   }
