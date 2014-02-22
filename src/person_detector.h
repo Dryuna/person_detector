@@ -7,9 +7,11 @@
 #include <tf/transform_listener.h>                      //currently unused
 #include <tf/transform_broadcaster.h>                   //used to broadcast detections
 #include <visualization_msgs/Marker.h>                  //display markers on rviz
+#include <visualization_msgs/MarkerArray.h>             //advanced display of marker on rviz
 #include <person_detector/DetectionObjectArray.h>       //our detections
 #include <person_detector/DetectionObject.h>            //used for a single detection
 #include <person_detector/SpeechConfirmation.h>         //for speech confirmations we receive
+#include <person_detector/ObstacleArray.h>              //to store found obstacles
 #include <nav_msgs/OccupancyGrid.h>                     //the map format
 #include <costmap_2d/layer.h>              //to use a costmap
 #include <costmap_2d/costmap_2d_ros.h>     //to use a costmap
@@ -48,11 +50,14 @@ private:
   visualization_msgs::Marker heads_;
   ros::Publisher pub_human_marker_text_;
   visualization_msgs::Marker heads_text_;
+  ros::Publisher pub_obstacle_text_;
+  visualization_msgs::Marker obstacle_text_;
+  ros::Publisher pub_obstacle_rviz_;
+  visualization_msgs::Marker obstacle_marker_;
 
 
   //callbacks
   void faceRecognitionCallback_(const cob_people_detection_msgs::DetectionArray received_detections);
-  void allRecognitionsCallback_(const person_detector::DetectionObjectArray all_detections);
   void mapCallback_(const nav_msgs::OccupancyGrid received_map);
   void localCostmapCallback_ (const nav_msgs::OccupancyGrid received);
   void obstaclesCallback_ (const sensor_msgs::PointCloud pcl);
@@ -71,11 +76,23 @@ private:
   costmap_2d::Costmap2D updated_map;
   costmap_2d::Costmap2DPublisher *pub_updated_map;
   bool map_initialized_;
+  costmap_2d::Costmap2D updated_cm_;
+  costmap_2d::Costmap2D updated_counter_;
   costmap_2d::Costmap2D difference_map_;
   costmap_2d::Costmap2DPublisher *pub_difference_map;
+  costmap_2d::Costmap2D dmap_new_;
+  costmap_2d::Costmap2DPublisher *pub_dmap_new_;
+  costmap_2d::Costmap2D dmap_pano_;
+  costmap_2d::Costmap2DPublisher *pub_dmap_pano_;
   double imu_ang_vel_z;
   std::queue<person_detector::SpeechConfirmation> conf_queue_;
   std::vector<geometry_msgs::PoseWithCovarianceStamped> amcl_poses_;
+  person_detector::ObstacleArray all_obstacles_;
+  unsigned int obstacle_id;
+  //global helperpoint
+  geometry_msgs::Point p;
+  double x_map;
+  double y_map;
 
   //functions
   int preprocessDetections_();
@@ -86,9 +103,14 @@ private:
   int clearDoubleResults_(std::vector< std::vector <double> > &distances, std::vector<unsigned int> &win_id, std::vector<double> &win_dist, unsigned int detection_array_size);
   int substractHit(std::string label, unsigned int leave_id);
   int cleanDetectionArray_ (ros::Duration oldness);
+  void showAllRecognitions();
   int generateDifferenceMap();
+  int findObstacles();
+  bool searchFurther(unsigned int orig_x, unsigned int orig_y, costmap_2d::Costmap2D* costmap, std::vector<geometry_msgs::Point> &points );
+  void showAllObstacles();
   int inflateMap();
   int processConfirmations_();
+
   bool findAmclPose_ (geometry_msgs::PoseWithCovarianceStamped &pose, ros::Time stamp);
 
 

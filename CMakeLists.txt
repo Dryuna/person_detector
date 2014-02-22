@@ -58,6 +58,8 @@ find_package(catkin REQUIRED COMPONENTS
    SpeechConfirmation.msg
    DetectionObject.msg
    DetectionObjectArray.msg
+   Obstacle.msg
+   ObstacleArray.msg
 
 #   Message2.msg
  )
