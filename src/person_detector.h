@@ -18,6 +18,14 @@
 #include <sensor_msgs/Imu.h>                // to get information about the rotation
 #include <geometry_msgs/PoseWithCovarianceStamped.h>    //for amcl
 
+namespace person_detector {
+  struct ObsMapPoints
+  {
+    unsigned int id;
+    std::vector<geometry_msgs::Point> points;
+  };
+}
+
 class person_detector_class
 {
 private:
@@ -50,10 +58,14 @@ private:
   visualization_msgs::Marker heads_;
   ros::Publisher pub_human_marker_text_;
   visualization_msgs::Marker heads_text_;
-  ros::Publisher pub_obstacle_text_;
-  visualization_msgs::Marker obstacle_text_;
-  ros::Publisher pub_obstacle_rviz_;
-  visualization_msgs::Marker obstacle_marker_;
+  ros::Publisher pub_obstacle_points_text_;
+  visualization_msgs::Marker obstacle_points_text_;
+  ros::Publisher pub_obstacle_borders_;
+  visualization_msgs::Marker obstacle_boarder_marker_;
+  ros::Publisher pub_obstacle_cubes_;
+  visualization_msgs::Marker obstacle_cubes_;
+  ros::Publisher pub_obstacle_info_text_;
+  visualization_msgs::Marker obstacle_info_text_;
 
 
   //callbacks
@@ -88,9 +100,11 @@ private:
   std::queue<person_detector::SpeechConfirmation> conf_queue_;
   std::vector<geometry_msgs::PoseWithCovarianceStamped> amcl_poses_;
   person_detector::ObstacleArray all_obstacles_;
+  std::vector<person_detector::ObsMapPoints> all_obs_map_xy_;
   unsigned int obstacle_id;
   //global helperpoint
   geometry_msgs::Point p;
+  geometry_msgs::Point p_map_xy;
   double x_map;
   double y_map;
 
@@ -106,7 +120,8 @@ private:
   void showAllRecognitions();
   int generateDifferenceMap();
   int findObstacles();
-  bool searchFurther(unsigned int orig_x, unsigned int orig_y, costmap_2d::Costmap2D* costmap, std::vector<geometry_msgs::Point> &points );
+  bool searchFurther(unsigned int orig_x, unsigned int orig_y, costmap_2d::Costmap2D* costmap, std::vector<geometry_msgs::Point> *points, std::vector<geometry_msgs::Point> *points_map_xy );
+  bool rateObstacle_(person_detector::Obstacle *obs);
   void showAllObstacles();
   int inflateMap();
   int processConfirmations_();
