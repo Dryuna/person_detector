@@ -1,5 +1,6 @@
 Header header
 geometry_msgs/Point[] points
+geometry_msgs/PoseWithCovarianceStamped pose
 bool present
 bool checked
-int8 probability
+int32 probability

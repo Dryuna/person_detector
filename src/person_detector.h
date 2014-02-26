@@ -33,6 +33,7 @@ private:
   ros::NodeHandle n_;
   ros::Subscriber sub_face_recognition_;
   ros::Publisher pub_all_recognitions_;
+  ros::Publisher pub_all_obstacles_;
   ros::Subscriber sub_all_recognitions_;
   ros::Subscriber sub_map_;
   ros::Subscriber sub_local_costmap_;
@@ -116,12 +117,12 @@ private:
   int findDistanceWinner_(std::vector< std::vector <double> > &distances, std::vector<unsigned int> &win_id, std::vector<double> &win_dist, unsigned int detection_array_size);
   int clearDoubleResults_(std::vector< std::vector <double> > &distances, std::vector<unsigned int> &win_id, std::vector<double> &win_dist, unsigned int detection_array_size);
   int substractHit(std::string label, unsigned int leave_id);
-  int cleanDetectionArray_ (ros::Duration oldness);
+  int garbageCollector_ (ros::Duration oldness);
   void showAllRecognitions();
   int generateDifferenceMap();
   int findObstacles();
   bool searchFurther(unsigned int orig_x, unsigned int orig_y, costmap_2d::Costmap2D* costmap, std::vector<geometry_msgs::Point> *points, std::vector<geometry_msgs::Point> *points_map_xy );
-  bool rateObstacle_(person_detector::Obstacle *obs);
+  bool rateObstacle_(person_detector::Obstacle *obs, person_detector::ObsMapPoints *map_points);
   void showAllObstacles();
   int inflateMap();
   int processConfirmations_();

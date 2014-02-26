@@ -319,21 +319,16 @@ void person_detector_class::localCostmapCallback_(const nav_msgs::OccupancyGrid 
     {
       for (unsigned col = 0; col < (received.info.width); col++)
         {
-          if (*it == 100) state = costmap_2d::LETHAL_OBSTACLE; // is occupied
-          else state = costmap_2d::FREE_SPACE;
-
-          //update this and the sorrounding
-          updated_map.setCost(point_map_x,point_map_y,state);
-          updated_cm_.setCost(point_map_x,point_map_y,10);
           int counter = updated_counter_.getCost(point_map_x,point_map_y);
-          if (state == costmap_2d::LETHAL_OBSTACLE)
+          if (*it == 100)  // is occupied
           {
+            updated_map.setCost(point_map_x,point_map_y,costmap_2d::LETHAL_OBSTACLE);
             if (counter < 255)
             {
               updated_counter_.setCost(point_map_x,point_map_y,counter+1);
             }
           }
-          else
+          else  //is free
           {
             if (counter > 10)
             {
@@ -342,8 +337,11 @@ void person_detector_class::localCostmapCallback_(const nav_msgs::OccupancyGrid 
             else
             {
               updated_counter_.setCost(point_map_x,point_map_y,0);
+              updated_map.setCost(point_map_x,point_map_y,costmap_2d::FREE_SPACE);
             }
           }
+          //update distances
+          updated_cm_.setCost(point_map_x,point_map_y,10);
           //update point
           point_map_x = (x_diff + ((col+1)*rec_res)) / map_res;
           it++;
@@ -386,6 +384,8 @@ void person_detector_class::obstaclesCallback_(const sensor_msgs::PointCloud pcl
       x_diff2 = (it->x -x_lat)*(it->x - x_lat);
       y_diff2 = (it->y - y_lat)*(it->y - y_lat);
       distance = sqrt(x_diff2+y_diff2);
+      //throw away results being more than 4m away
+      if (distance > 4) continue;
       //find the points
       x_diff = it->x - map_orig_x;
       y_diff = it->y - map_orig_y;
@@ -393,11 +393,10 @@ void person_detector_class::obstaclesCallback_(const sensor_msgs::PointCloud pcl
       point_y = y_diff / map_res;
       //update point
       updated_map.setCost(point_x,point_y,costmap_2d::LETHAL_OBSTACLE);
-      distance = distance*10;
-      distance = round(distance);
+      int distance_dm = round(distance*10);
       if (distance < updated_cm_.getCost(point_x,point_y))
       {
-        updated_cm_.setCost(point_x,point_y,distance);
+        updated_cm_.setCost(point_x,point_y,distance_dm);
       }
       int counter = updated_counter_.getCost(point_x,point_y);
       if (counter < 254)
@@ -697,21 +696,34 @@ int person_detector_class::substractHit(std::string label, unsigned int leave_id
   return 0;
 }
 
-int person_detector_class::cleanDetectionArray_(ros::Duration oldness)
+int person_detector_class::garbageCollector_(ros::Duration oldness)
 {
-  if (all_detections_array_.detections.empty())
-  {
-    return 0;
-  }
   ros::Time present = ros::Time::now();
   ros::Time time_stamp;
-  for (unsigned int it = 0; it < all_detections_array_.detections.size(); it++)
+  if (!all_detections_array_.detections.empty())
   {
-      time_stamp = all_detections_array_.detections[it].latest_pose_map.header.stamp;
-      if(all_detections_array_.detections[it].recognitions.name_array.empty() && ((present - time_stamp) > oldness))
+    for (unsigned int it = 0; it < all_detections_array_.detections.size(); it++)
+    {
+        time_stamp = all_detections_array_.detections[it].latest_pose_map.header.stamp;
+        if(all_detections_array_.detections[it].recognitions.name_array.empty() && ((present - time_stamp) > oldness))
+          {
+            all_detections_array_.detections.erase(all_detections_array_.detections.begin()+it);
+          }
+    }
+  }
+  if (!all_obstacles_.obstacles.empty())
+  {
+    for (unsigned int it = 0; it < all_obstacles_.obstacles.size(); it++)
+    {
+      if (all_obstacles_.obstacles[it].present == false && all_obstacles_.obstacles[it].checked == false)
+      {
+        time_stamp = all_obstacles_.obstacles[it].header.stamp;
+        if ((present - time_stamp) > oldness)
         {
-          all_detections_array_.detections.erase(all_detections_array_.detections.begin()+it);
+            all_obstacles_.obstacles.erase(all_obstacles_.obstacles.begin()+it);
         }
+      }
+    }
   }
 }
 
@@ -740,9 +752,9 @@ int person_detector_class::inflateMap()
   {
     lat_x = lethal_ix.back();
     lat_y = lethal_iy.back();
-    for (int ix = -2; ix < 3; ix++)
+    for (int ix = -3; ix < 4; ix++)
       {
-        for (int iy = -2; iy < 3; iy++)
+        for (int iy = -3; iy < 4; iy++)
           {
             static_map.setCost(lat_x-ix,lat_y-iy,costmap_2d::LETHAL_OBSTACLE);
           }
@@ -811,11 +823,12 @@ int person_detector_class::findObstacles()
       else
       {
         //update points
-          all_obstacles_.obstacles[it].points = tmp_p;
-          all_obs_map_xy_[it].points = tmp_p_map_xy;
-       //update time
-          all_obstacles_.obstacles[it].header.stamp = ros::Time::now();
-          all_obstacles_.obstacles[it].present = true;
+        all_obstacles_.obstacles[it].points = tmp_p;
+        all_obs_map_xy_[it].points = tmp_p_map_xy;
+        //update time
+        all_obstacles_.obstacles[it].header.stamp = ros::Time::now();
+        all_obstacles_.obstacles[it].present = true;
+        rateObstacle_(&all_obstacles_.obstacles[it],&all_obs_map_xy_[it]);
       }
 
     }
@@ -848,8 +861,10 @@ int person_detector_class::findObstacles()
           //we discard every obstacle smaller than 3 points
           if (obs.points.size() > 3)
           {
-            rateObstacle_(&obs);
+            rateObstacle_(&obs,&obs_map_xy);
+            findAmclPose_(obs.pose,ros::Time::now());
             obs.header.seq = obstacle_id;
+            obs.present = true;
             obstacle_id++;
             all_obstacles_.obstacles.push_back(obs);
             all_obs_map_xy_.push_back(obs_map_xy);
@@ -857,7 +872,10 @@ int person_detector_class::findObstacles()
         }
     }
   }
-  //
+  //publish new array
+  all_obstacles_.header.seq++;
+  all_obstacles_.header.stamp = ros::Time::now();
+  pub_all_obstacles_.publish(all_obstacles_);
   return 0;
 }
 
@@ -865,9 +883,9 @@ int person_detector_class::findObstacles()
 
 bool person_detector_class::searchFurther(unsigned int x_orig, unsigned int y_orig, costmap_2d::Costmap2D *costmap, std::vector<geometry_msgs::Point> *points, std::vector<geometry_msgs::Point> *points_map_xy)
 {
-  for (int ix = -2; ix < 3; ix++)
+  for (int ix = -3; ix < 4; ix++)
   {
-    for (int iy = -2; iy < 3; iy++)
+    for (int iy = -3; iy < 4; iy++)
     {
       if (costmap->getCost(x_orig+ix,y_orig+iy) == costmap_2d::LETHAL_OBSTACLE)
         {
@@ -886,9 +904,56 @@ bool person_detector_class::searchFurther(unsigned int x_orig, unsigned int y_or
   }
 }
 
-bool person_detector_class::rateObstacle_(person_detector::Obstacle *obs)
+bool person_detector_class::rateObstacle_(person_detector::Obstacle *obs, person_detector::ObsMapPoints *map_points)
 {
-  obs->probability = 10;
+  //right now, we calculate an average
+  int total_points = 0;
+  double rate_counts = 0;
+  double rate_range = 0;
+  double point_range = 0;
+  double rate_form = 0;
+  //how often have we seen this obstacle in average?
+  //from which distance have we seen this obstacle?
+  //
+  for (unsigned int it = 0; it < map_points->points.size(); it++)
+  {
+      rate_counts += updated_counter_.getCost(map_points->points[it].x,map_points->points[it].y);
+      point_range = updated_cm_.getCost(map_points->points[it].x,map_points->points[it].y);
+      // our accepted distances vary from 10dm to 40dm
+      // a 10dm distance gives 100 points
+      // 40dm and further give 0 points
+      // this leads to points = distance_in_dm * (-10/3) + 400/3
+      if (point_range < 40)
+      {
+          rate_range += point_range * (-10/3) + 400/3;
+      }
+  }
+  //build the average of counts and normalize it to 100
+  rate_counts = rate_counts/(map_points->points.size()*255);
+  //build the average of the range rate
+  rate_range = rate_range/map_points->points.size();
+
+  //fake rate of the form
+  if (map_points->points.size() < 5)
+  {
+    rate_form = 10;
+  }
+  else if (map_points->points.size() < 10)
+  {
+    rate_form = 50;
+  }
+  else if (map_points->points.size() < 20)
+  {
+    rate_form = 75;
+  }
+  else
+  {
+    rate_form = 100;
+  }
+
+  //total rate
+  total_points = (rate_counts + rate_range + rate_form)/3;
+  obs->probability = total_points;
   return true;
 }
 
@@ -904,7 +969,7 @@ void person_detector_class::showAllObstacles()
       double map_x;
       double map_y;
       std::string name;
-      visualization_msgs::MarkerArray array;
+      visualization_msgs::MarkerArray text_array;
       for (unsigned int ix = 0; ix < updated_map.getSizeInCellsX(); ix++)
       {
         for (unsigned int iy = 0; iy < updated_map.getSizeInCellsY(); iy++)
@@ -923,13 +988,13 @@ void person_detector_class::showAllObstacles()
               int cm = updated_cm_.getCost(ix,iy);
               name+= boost::lexical_cast<std::string>(cm);
               obstacle_points_text_.text = name;
-              array.markers.push_back(obstacle_points_text_);
+              text_array.markers.push_back(obstacle_points_text_);
               name.clear();
               id++;
           }
         }
       }
-      pub_obstacle_points_text_.publish(array);
+      pub_obstacle_points_text_.publish(text_array);
     }
 
   //display obstacle borders
@@ -977,11 +1042,11 @@ void person_detector_class::showAllObstacles()
           obstacle_boarder_marker_.id = all_obstacles_.obstacles[it].header.seq;
           obstacle_boarder_marker_.header.seq = all_obstacles_.obstacles[it].header.seq;
           obstacle_boarder_marker_.header.stamp = ros::Time::now();
-          //array.markers.push_back(obstacle_marker_);
-          pub_obstacle_borders_.publish(obstacle_boarder_marker_);
+          array.markers.push_back(obstacle_boarder_marker_);
 
 
         }
+      pub_obstacle_borders_.publish(array);
     }
   //show obstacle cubes and obstacle info-text
   if (pub_obstacle_cubes_.getNumSubscribers() > 0 || pub_obstacle_info_text_.getNumSubscribers() > 0)
@@ -1021,6 +1086,25 @@ void person_detector_class::showAllObstacles()
       text += boost::lexical_cast<std::string>(prob);
       text += "p";
       obstacle_info_text_.text = text;
+      //change color in order of their state
+      if (all_obstacles_.obstacles[it].present == false)
+      {
+        obstacle_cubes_.color.r = 0.8;
+        obstacle_cubes_.color.g = 0.8;
+        obstacle_cubes_.color.b = 0.8;
+        obstacle_info_text_.color.r = 0.8;
+        obstacle_info_text_.color.b = 0.8;
+        obstacle_info_text_.color.g = 0.8;
+      }
+      else
+      {
+        obstacle_cubes_.color.b = 1.0;
+        obstacle_cubes_.color.g = 0;
+        obstacle_cubes_.color.r = 0;
+        obstacle_info_text_.color.r = obstacle_info_text_.color.a = 1;
+        obstacle_info_text_.color.b = obstacle_info_text_.color.g = 0;
+      }
+
       //update headers
       obstacle_cubes_.id = obstacle_info_text_.id = all_obstacles_.obstacles[it].header.seq;
       obstacle_cubes_.header.seq++;
@@ -1028,10 +1112,10 @@ void person_detector_class::showAllObstacles()
       obstacle_cubes_.header.stamp = obstacle_info_text_.header.stamp = ros::Time::now();
       //add to array
       text_array.markers.push_back(obstacle_info_text_);
-      pub_obstacle_cubes_.publish(obstacle_cubes_);
+      cube_array.markers.push_back(obstacle_cubes_);
     }
     pub_obstacle_info_text_.publish(text_array);
-    //pub_obstacle_cubes_.publish(cube_array);
+    pub_obstacle_cubes_.publish(cube_array);
   }
 }
 
@@ -1105,15 +1189,16 @@ person_detector_class::person_detector_class()
   sub_amcl_ = n_.subscribe("/amcl_pose",10,&person_detector_class::amclCallback_,this);
   tf_cache = tf_listener_.getCacheLength();
   pub_all_recognitions_ = n_.advertise<person_detector::DetectionObjectArray>("/person_detector/all_recognitions",10);
+  pub_all_obstacles_ = n_.advertise<person_detector::ObstacleArray>("/person_detector/all_obstacles",10);
   //initialize markers
   human_marker_raw_pub_ = n_.advertise<visualization_msgs::Marker>("/person_detector/face_marker_raw",10);
   human_marker_raw_text_pub_ = n_.advertise<visualization_msgs::Marker>("/person_detector/face_marker_text_raw",10);
   pub_human_marker_ = n_.advertise<visualization_msgs::Marker>("/person_detector/human_marker",10);
   pub_human_marker_text_ = n_.advertise<visualization_msgs::Marker>("/person_detector/human_marker_text",10);
   pub_obstacle_points_text_ = n_.advertise<visualization_msgs::MarkerArray>("/person_detector/obstacle_appearance_text",10);
-  pub_obstacle_borders_ = n_.advertise<visualization_msgs::Marker>("/person_detector/obstacle_borders",10);
+  pub_obstacle_borders_ = n_.advertise<visualization_msgs::MarkerArray>("/person_detector/obstacle_borders",10);
   pub_obstacle_info_text_ = n_.advertise<visualization_msgs::MarkerArray>("/person_detector/obstacle_info_text",10);
-  pub_obstacle_cubes_ = n_.advertise<visualization_msgs::Marker>("/person_detector/obstacle_cubes",10);
+  pub_obstacle_cubes_ = n_.advertise<visualization_msgs::MarkerArray>("/person_detector/obstacle_cubes",10);
   points.header.frame_id = "/camera_rgb_optical_frame";
   points.ns = "person_detector/face_marker";
   points.id = 0;
@@ -1250,7 +1335,7 @@ int person_detector_class::run()
   {
     start = ros::Time::now();
     preprocessDetections_();
-    cleanDetectionArray_(ros::Duration(60));
+    garbageCollector_(ros::Duration(60));
     end = ros::Time::now();
     difference = end-start;
     processConfirmations_();
