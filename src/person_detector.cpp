@@ -47,19 +47,19 @@ void person_detector_class::faceRecognitionCallback_(const cob_people_detection_
         p.x = temp_detections.detections[it].pose.pose.position.x;
         p.y = temp_detections.detections[it].pose.pose.position.y;
         p.z = temp_detections.detections[it].pose.pose.position.z;
-        points.header.stamp = ros::Time::now();
-        points.id = it;
-        points.points.push_back(p);
-        human_marker_raw_pub_.publish(points);
-        points.points.clear();
+        heads_raw_.header.stamp = ros::Time::now();
+        heads_raw_.id = it;
+        heads_raw_.points.push_back(p);
+        pub_human_marker_raw_.publish(heads_raw_);
+        heads_raw_.points.clear();
 
-        face_text.header.stamp = ros::Time::now();
-        face_text.id = it;
-        face_text.text = temp_detections.detections[it].label;
-        face_text.pose.position.x = temp_detections.detections[it].pose.pose.position.x;
-        face_text.pose.position.y = temp_detections.detections[it].pose.pose.position.y;
-        face_text.pose.position.z = temp_detections.detections[it].pose.pose.position.z+0.3;
-        human_marker_raw_text_pub_.publish(face_text);
+        text_raw_.header.stamp = ros::Time::now();
+        text_raw_.id = it;
+        text_raw_.text = temp_detections.detections[it].label;
+        text_raw_.pose.position.x = temp_detections.detections[it].pose.pose.position.x;
+        text_raw_.pose.position.y = temp_detections.detections[it].pose.pose.position.y;
+        text_raw_.pose.position.z = temp_detections.detections[it].pose.pose.position.z+0.3;
+        pub_human_marker_raw_text_.publish(text_raw_);
       }
       detection_temp_storage_.push(temp_detections);
   }
@@ -164,7 +164,7 @@ void person_detector_class::showAllRecognitions()
   }
 }
 
-int person_detector_class::preprocessDetections_()
+int person_detector_class::processDetections_()
 {
   cob_people_detection_msgs::DetectionArray temporary_detection_array;
 //  ros::Rate rp(100);
@@ -263,7 +263,7 @@ void person_detector_class::mapCallback_(const nav_msgs::OccupancyGrid received_
   static_map.resizeMap(received_map.info.width,received_map.info.height,received_map.info.resolution,received_map.info.origin.position.x,received_map.info.origin.position.y);
   updated_map.resizeMap(received_map.info.width,received_map.info.height,received_map.info.resolution,received_map.info.origin.position.x,received_map.info.origin.position.y);
   difference_map_.resizeMap(received_map.info.width,received_map.info.height,received_map.info.resolution,received_map.info.origin.position.x,received_map.info.origin.position.y);
-  updated_cm_.resizeMap(received_map.info.width,received_map.info.height,received_map.info.resolution,received_map.info.origin.position.x,received_map.info.origin.position.y);
+  updated_dm_.resizeMap(received_map.info.width,received_map.info.height,received_map.info.resolution,received_map.info.origin.position.x,received_map.info.origin.position.y);
   updated_counter_.resizeMap(received_map.info.width,received_map.info.height,received_map.info.resolution,received_map.info.origin.position.x,received_map.info.origin.position.y);
   dmap_new_.resizeMap(received_map.info.width,received_map.info.height,received_map.info.resolution,received_map.info.origin.position.x,received_map.info.origin.position.y);
   dmap_pano_.resizeMap(received_map.info.width,received_map.info.height,received_map.info.resolution,received_map.info.origin.position.x,received_map.info.origin.position.y);
@@ -279,7 +279,7 @@ void person_detector_class::mapCallback_(const nav_msgs::OccupancyGrid received_
           else if (*id == 100) static_map.setCost(iw,ih,costmap_2d::LETHAL_OBSTACLE);
           else static_map.setCost(iw,ih,costmap_2d::FREE_SPACE);
           updated_map.setCost(iw,ih,costmap_2d::NO_INFORMATION);
-          updated_cm_.setCost(iw,ih,254);
+          updated_dm_.setCost(iw,ih,254);
           id++;
         }
   }
@@ -341,7 +341,7 @@ void person_detector_class::localCostmapCallback_(const nav_msgs::OccupancyGrid 
             }
           }
           //update distances
-          updated_cm_.setCost(point_map_x,point_map_y,10);
+          updated_dm_.setCost(point_map_x,point_map_y,10);
           //update point
           point_map_x = (x_diff + ((col+1)*rec_res)) / map_res;
           it++;
@@ -394,9 +394,9 @@ void person_detector_class::obstaclesCallback_(const sensor_msgs::PointCloud pcl
       //update point
       updated_map.setCost(point_x,point_y,costmap_2d::LETHAL_OBSTACLE);
       int distance_dm = round(distance*10);
-      if (distance < updated_cm_.getCost(point_x,point_y))
+      if (distance < updated_dm_.getCost(point_x,point_y))
       {
-        updated_cm_.setCost(point_x,point_y,distance_dm);
+        updated_dm_.setCost(point_x,point_y,distance_dm);
       }
       int counter = updated_counter_.getCost(point_x,point_y);
       if (counter < 254)
@@ -433,7 +433,7 @@ int person_detector_class::classifyDetections_( cob_people_detection_msgs::Detec
     //just initialize the result and push it to the detection_array
     for (unsigned int it = 0; it < detection_array.detections.size(); it++)
     {
-      addNewDetection(detection_array.detections[it]);
+      addNewDetection_(detection_array.detections[it]);
       ROS_DEBUG("First detection - added a new one");
     }
     return 0;
@@ -475,16 +475,16 @@ int person_detector_class::classifyDetections_( cob_people_detection_msgs::Detec
     // either update a result or make a new result
     if (win_dist[in] < max_dist_m )
     {
-      updateDetection(detection_array.detections[in], win_id[in]);
+      updateDetection_(detection_array.detections[in], win_id[in]);
     } else
     {
-      addNewDetection(detection_array.detections[in]);
+      addNewDetection_(detection_array.detections[in]);
     }
   }
   return 0;
 }
 
-int person_detector_class::addNewDetection(cob_people_detection_msgs::Detection new_detection)
+int person_detector_class::addNewDetection_(cob_people_detection_msgs::Detection new_detection)
 {
   ROS_INFO("Addind a new detection");
   person_detector::DetectionObject push_object;
@@ -493,8 +493,8 @@ int person_detector_class::addNewDetection(cob_people_detection_msgs::Detection 
   push_object.header.stamp = push_object.latest_pose_map.header.stamp = new_detection.header.stamp;  //why not taking the stamp of the object
 
 
-  push_object.header.seq = detection_id;
-  detection_id++;
+  push_object.header.seq = recognition_id_;
+  recognition_id_++;
   push_object.latest_pose_map.header.frame_id = "/map";
   push_object.total_detections = 1;
   push_object.latest_pose_map.pose.position.x = new_detection.pose.pose.position.x;
@@ -521,7 +521,7 @@ int person_detector_class::addNewDetection(cob_people_detection_msgs::Detection 
   all_detections_array_.header.seq++;
 }
 
-int person_detector_class::updateDetection(cob_people_detection_msgs::Detection new_detection, unsigned int det_id)
+int person_detector_class::updateDetection_(cob_people_detection_msgs::Detection new_detection, unsigned int pos)
 {
   ROS_DEBUG("Updating a detection");
   //update general stuff
@@ -529,27 +529,27 @@ int person_detector_class::updateDetection(cob_people_detection_msgs::Detection 
   all_detections_array_.header.seq++;
 
   //update our specific result
-  all_detections_array_.detections[det_id].total_detections++;
-  all_detections_array_.detections[det_id].latest_pose_map.pose.position.x = new_detection.pose.pose.position.x;
-  all_detections_array_.detections[det_id].latest_pose_map.pose.position.y = new_detection.pose.pose.position.y;
-  all_detections_array_.detections[det_id].latest_pose_map.pose.position.z = new_detection.pose.pose.position.z;
-  all_detections_array_.detections[det_id].latest_pose_map.header.stamp = ros::Time::now();
-  findAmclPose_(all_detections_array_.detections[det_id].last_seen_from,new_detection.header.stamp);
+  all_detections_array_.detections[pos].total_detections++;
+  all_detections_array_.detections[pos].latest_pose_map.pose.position.x = new_detection.pose.pose.position.x;
+  all_detections_array_.detections[pos].latest_pose_map.pose.position.y = new_detection.pose.pose.position.y;
+  all_detections_array_.detections[pos].latest_pose_map.pose.position.z = new_detection.pose.pose.position.z;
+  all_detections_array_.detections[pos].latest_pose_map.header.stamp = ros::Time::now();
+  findAmclPose_(all_detections_array_.detections[pos].last_seen_from,new_detection.header.stamp);
   //update or create a new nametag
   bool found = false;
   std::string it_label;
   if (new_detection.label != "UnknownHead" && new_detection.label != "Unknown")
   {
-    for (unsigned int it = 0; it < all_detections_array_.detections[det_id].recognitions.name_array.size(); it++)
+    for (unsigned int it = 0; it < all_detections_array_.detections[pos].recognitions.name_array.size(); it++)
     {
-      it_label = all_detections_array_.detections[det_id].recognitions.name_array[it].label;
-      if (new_detection.label == all_detections_array_.detections[det_id].recognitions.name_array[it].label)
+      it_label = all_detections_array_.detections[pos].recognitions.name_array[it].label;
+      if (new_detection.label == all_detections_array_.detections[pos].recognitions.name_array[it].label)
       {
-          all_detections_array_.detections[det_id].recognitions.name_array[it].quantity++;
-          all_detections_array_.detections[det_id].recognitions.total_assigned++;
+          all_detections_array_.detections[pos].recognitions.name_array[it].quantity++;
+          all_detections_array_.detections[pos].recognitions.total_assigned++;
           found = true;
           ROS_DEBUG("Found a hit and now substracting of the rest");
-          substractHit(new_detection.label, det_id);
+          substractHit(new_detection.label, pos);
       }
     }
     if (!found)
@@ -557,9 +557,9 @@ int person_detector_class::updateDetection(cob_people_detection_msgs::Detection 
         person_detector::NameLabel push_name;
         push_name.label = new_detection.label;
         push_name.quantity = 1;
-        all_detections_array_.detections[det_id].recognitions.name_array.push_back(push_name);
-        all_detections_array_.detections[det_id].recognitions.total_assigned++;
-        substractHit(new_detection.label, det_id);
+        all_detections_array_.detections[pos].recognitions.name_array.push_back(push_name);
+        all_detections_array_.detections[pos].recognitions.total_assigned++;
+        substractHit(new_detection.label, pos);
       }
   }
   return 0;
@@ -715,12 +715,16 @@ int person_detector_class::garbageCollector_(ros::Duration oldness)
   {
     for (unsigned int it = 0; it < all_obstacles_.obstacles.size(); it++)
     {
-      if (all_obstacles_.obstacles[it].present == false && all_obstacles_.obstacles[it].checked == false)
+      if (all_obstacles_.obstacles[it].present == false &&
+          all_obstacles_.obstacles[it].confirmation.suceeded == false &&
+          all_obstacles_.obstacles[it].confirmation.tried == false &&
+          all_obstacles_.obstacles[it].confirmation.running == false)
       {
         time_stamp = all_obstacles_.obstacles[it].header.stamp;
         if ((present - time_stamp) > oldness)
         {
             all_obstacles_.obstacles.erase(all_obstacles_.obstacles.begin()+it);
+            all_obs_map_xy_.erase(all_obs_map_xy_.begin()+it);
         }
       }
     }
@@ -816,7 +820,8 @@ int person_detector_class::findObstacles()
           searchFurther(all_obs_map_xy_[it].points[ip].x,all_obs_map_xy_[it].points[ip].y,&new_map,&tmp_p,&tmp_p_map_xy);
         }
       }
-      if (tmp_p.size() < 3)
+      //obstacles smaller than 5 points are rejected
+      if (tmp_p.size() < 5)
       {
         all_obstacles_.obstacles[it].present = false;
       }
@@ -837,7 +842,6 @@ int person_detector_class::findObstacles()
   //now find the new ones
   person_detector::Obstacle obs;
   person_detector::ObsMapPoints obs_map_xy;
-  obs.checked = false;
   obs.header.frame_id = "/map";
   obs.header.stamp = ros::Time::now();
   for (unsigned int ix = 0;ix < new_map.getSizeInCellsX(); ix++)
@@ -858,14 +862,14 @@ int person_detector_class::findObstacles()
           obs.points.push_back(p);
           obs_map_xy.points.push_back(p_map_xy);
           searchFurther(ix,iy,&new_map,&obs.points,&obs_map_xy.points);
-          //we discard every obstacle smaller than 3 points
-          if (obs.points.size() > 3)
+          //we discard every obstacle smaller than 7 points
+          if (obs.points.size() > 7)
           {
             rateObstacle_(&obs,&obs_map_xy);
-            findAmclPose_(obs.pose,ros::Time::now());
-            obs.header.seq = obstacle_id;
+            findAmclPose_(obs.robot_pose,ros::Time::now());
+            obs.header.seq = recognition_id_;
             obs.present = true;
-            obstacle_id++;
+            recognition_id_++;
             all_obstacles_.obstacles.push_back(obs);
             all_obs_map_xy_.push_back(obs_map_xy);
           }
@@ -918,7 +922,7 @@ bool person_detector_class::rateObstacle_(person_detector::Obstacle *obs, person
   for (unsigned int it = 0; it < map_points->points.size(); it++)
   {
       rate_counts += updated_counter_.getCost(map_points->points[it].x,map_points->points[it].y);
-      point_range = updated_cm_.getCost(map_points->points[it].x,map_points->points[it].y);
+      point_range = updated_dm_.getCost(map_points->points[it].x,map_points->points[it].y);
       // our accepted distances vary from 10dm to 40dm
       // a 10dm distance gives 100 points
       // 40dm and further give 0 points
@@ -977,7 +981,7 @@ void person_detector_class::showAllObstacles()
             if (difference_map_.getCost(ix,iy) == costmap_2d::LETHAL_OBSTACLE)
           {
               obstacle_points_text_.id = id;
-              updated_cm_.mapToWorld(ix,iy+1,map_x,map_y);
+              updated_dm_.mapToWorld(ix,iy+1,map_x,map_y);
               obstacle_points_text_.pose.position.x = map_x;
               obstacle_points_text_.pose.position.y = map_y;
               obstacle_points_text_.pose.position.z = 0.05;
@@ -985,7 +989,7 @@ void person_detector_class::showAllObstacles()
               int count = updated_counter_.getCost(ix,iy);
               name = boost::lexical_cast<std::string>(count);
               name += "|";
-              int cm = updated_cm_.getCost(ix,iy);
+              int cm = updated_dm_.getCost(ix,iy);
               name+= boost::lexical_cast<std::string>(cm);
               obstacle_points_text_.text = name;
               text_array.markers.push_back(obstacle_points_text_);
@@ -1066,8 +1070,8 @@ void person_detector_class::showAllObstacles()
       y = 0;
       for (unsigned int ip = 0; ip < all_obstacles_.obstacles[it].points.size(); ip++)
       {
-          x += all_obstacles_.obstacles[it].points[ip].x;
-          y += all_obstacles_.obstacles[it].points[ip].y;
+        x += all_obstacles_.obstacles[it].points[ip].x;
+        y += all_obstacles_.obstacles[it].points[ip].y;
       }
       x = x / all_obstacles_.obstacles[it].points.size();
       y = y / all_obstacles_.obstacles[it].points.size();
@@ -1085,24 +1089,60 @@ void person_detector_class::showAllObstacles()
       int prob = all_obstacles_.obstacles[it].probability;
       text += boost::lexical_cast<std::string>(prob);
       text += "p";
+      if (all_obstacles_.obstacles[it].confirmation.running)
+      {
+          text += " | running";
+      }
+      if (all_obstacles_.obstacles[it].confirmation.tried)
+      {
+        text += " | tried";
+      }
+      if (all_obstacles_.obstacles[it].confirmation.suceeded)
+      {
+        if (all_obstacles_.obstacles[it].confirmation.label.empty())
+        {
+          text += " | human";
+        }
+        else
+        {
+          text += " | ";
+          text += all_obstacles_.obstacles[it].confirmation.label;
+        }
+      }
       obstacle_info_text_.text = text;
       //change color in order of their state
-      if (all_obstacles_.obstacles[it].present == false)
+      obstacle_info_text_.color.r = obstacle_info_text_.color.a = 1;
+      obstacle_info_text_.color.b = obstacle_info_text_.color.g = 0;
+      // green if checked
+      if (all_obstacles_.obstacles[it].confirmation.suceeded)
       {
-        obstacle_cubes_.color.r = 0.8;
-        obstacle_cubes_.color.g = 0.8;
-        obstacle_cubes_.color.b = 0.8;
-        obstacle_info_text_.color.r = 0.8;
-        obstacle_info_text_.color.b = 0.8;
-        obstacle_info_text_.color.g = 0.8;
+        obstacle_cubes_.color.b = 0;
+        obstacle_cubes_.color.g = 1.0;
+        obstacle_cubes_.color.r = 0;
       }
-      else
+      // yellow if running or tried
+      else if (all_obstacles_.obstacles[it].confirmation.tried || all_obstacles_.obstacles[it].confirmation.running)
+      {
+        obstacle_cubes_.color.b = 0;
+        obstacle_cubes_.color.g = 1;
+        obstacle_cubes_.color.r = 1;
+      }
+      // present obstacles will be blue
+      if (all_obstacles_.obstacles[it].present)
       {
         obstacle_cubes_.color.b = 1.0;
         obstacle_cubes_.color.g = 0;
         obstacle_cubes_.color.r = 0;
-        obstacle_info_text_.color.r = obstacle_info_text_.color.a = 1;
-        obstacle_info_text_.color.b = obstacle_info_text_.color.g = 0;
+      }
+      // all inactive, but not yet garbage-collected obstacles are greyish
+      else
+      {
+      obstacle_cubes_.color.r = 0.8;
+      obstacle_cubes_.color.g = 0.8;
+      obstacle_cubes_.color.b = 0.8;
+      obstacle_info_text_.color.r = 0.8;
+      obstacle_info_text_.color.b = 0.8;
+      obstacle_info_text_.color.g = 0.8;
       }
 
       //update headers
@@ -1126,7 +1166,21 @@ int person_detector_class::processConfirmations_()
   {
     act = conf_queue_.front();
     conf_queue_.pop();
-    //search for id
+    bool found = false;
+    //search for id in obstacles
+    for (unsigned int it = 0; it < all_obstacles_.obstacles.size(); it++)
+    {
+        //if we find the right one, we save the information an
+        if (all_obstacles_.obstacles[it].header.seq == act.id)
+        {
+            all_obstacles_.obstacles[it].confirmation = act;
+            found = true;
+            break;
+        }
+    }
+    // we can skip the second part, if we've found it
+    if (found) continue;
+    //search for id in face recognitions
     for (unsigned int it = 0; it < all_detections_array_.detections.size(); it++)
     {
         // if it's the right, put information in there
@@ -1187,39 +1241,39 @@ person_detector_class::person_detector_class()
   sub_imu_ = n_.subscribe("/mobile_base/sensors/imu_data",10,&person_detector_class::imuCallback_,this);
   sub_confirmations_ = n_.subscribe("/person_detector/confirmations",10,&person_detector_class::confirmationCallback_,this);
   sub_amcl_ = n_.subscribe("/amcl_pose",10,&person_detector_class::amclCallback_,this);
-  tf_cache = tf_listener_.getCacheLength();
+  tf_cache_ = tf_listener_.getCacheLength();
   pub_all_recognitions_ = n_.advertise<person_detector::DetectionObjectArray>("/person_detector/all_recognitions",10);
   pub_all_obstacles_ = n_.advertise<person_detector::ObstacleArray>("/person_detector/all_obstacles",10);
   //initialize markers
-  human_marker_raw_pub_ = n_.advertise<visualization_msgs::Marker>("/person_detector/face_marker_raw",10);
-  human_marker_raw_text_pub_ = n_.advertise<visualization_msgs::Marker>("/person_detector/face_marker_text_raw",10);
+  pub_human_marker_raw_ = n_.advertise<visualization_msgs::Marker>("/person_detector/face_marker_raw",10);
+  pub_human_marker_raw_text_ = n_.advertise<visualization_msgs::Marker>("/person_detector/face_marker_text_raw",10);
   pub_human_marker_ = n_.advertise<visualization_msgs::Marker>("/person_detector/human_marker",10);
   pub_human_marker_text_ = n_.advertise<visualization_msgs::Marker>("/person_detector/human_marker_text",10);
   pub_obstacle_points_text_ = n_.advertise<visualization_msgs::MarkerArray>("/person_detector/obstacle_appearance_text",10);
   pub_obstacle_borders_ = n_.advertise<visualization_msgs::MarkerArray>("/person_detector/obstacle_borders",10);
   pub_obstacle_info_text_ = n_.advertise<visualization_msgs::MarkerArray>("/person_detector/obstacle_info_text",10);
   pub_obstacle_cubes_ = n_.advertise<visualization_msgs::MarkerArray>("/person_detector/obstacle_cubes",10);
-  points.header.frame_id = "/camera_rgb_optical_frame";
-  points.ns = "person_detector/face_marker";
-  points.id = 0;
-  points.lifetime = ros::Duration(10);
-  points.action = visualization_msgs::Marker::ADD;
-  points.type = visualization_msgs::Marker::POINTS;
-  points.scale.x = 0.2;
-  points.scale.y = 0.2;
-  points.scale.z = 0.2;
-  points.color.g = 1.0f;
-  points.color.a = 1.0;
+  heads_raw_.header.frame_id = "/camera_rgb_optical_frame";
+  heads_raw_.ns = "person_detector/face_marker";
+  heads_raw_.id = 0;
+  heads_raw_.lifetime = ros::Duration(10);
+  heads_raw_.action = visualization_msgs::Marker::ADD;
+  heads_raw_.type = visualization_msgs::Marker::POINTS;
+  heads_raw_.scale.x = 0.2;
+  heads_raw_.scale.y = 0.2;
+  heads_raw_.scale.z = 0.2;
+  heads_raw_.color.g = 1.0f;
+  heads_raw_.color.a = 1.0;
 
-  face_text.header.frame_id = "/camera_rgb_optical_frame";
-  face_text.ns = "person_detector/face_marker_text";
-  face_text.id = 0;
-  face_text.lifetime = ros::Duration(10);
-  face_text.action = visualization_msgs::Marker::ADD;
-  face_text.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
-  face_text.scale.z = 0.2;
-  face_text.color.r = 1.0f;
-  face_text.color.a = 1.0;
+  text_raw_.header.frame_id = "/camera_rgb_optical_frame";
+  text_raw_.ns = "person_detector/face_marker_text";
+  text_raw_.id = 0;
+  text_raw_.lifetime = ros::Duration(10);
+  text_raw_.action = visualization_msgs::Marker::ADD;
+  text_raw_.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
+  text_raw_.scale.z = 0.2;
+  text_raw_.color.r = 1.0f;
+  text_raw_.color.a = 1.0;
 
   obstacle_points_text_.header.frame_id = "/map";
   obstacle_points_text_.ns = "person_detector/obstacle_text";
@@ -1289,8 +1343,7 @@ person_detector_class::person_detector_class()
 
   //initialize array
   detection_array_in_use_ = false;
-  detection_id = 0;
-  obstacle_id = 0;
+  recognition_id_ = 0;
 
   //maps
   sub_map_ = n_.subscribe("/map",10,&person_detector_class::mapCallback_,this);
@@ -1334,7 +1387,7 @@ int person_detector_class::run()
   while (ros::ok())
   {
     start = ros::Time::now();
-    preprocessDetections_();
+    processDetections_();
     garbageCollector_(ros::Duration(60));
     end = ros::Time::now();
     difference = end-start;
