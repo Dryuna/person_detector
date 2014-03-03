@@ -100,14 +100,14 @@ void person_detector_class::showAllRecognitions()
         if (all_detections_array_.detections[it].recognitions.name_array[in].quantity > hits)
         {
           name = all_detections_array_.detections[it].recognitions.name_array[in].label + " ";
-          //ROS_DEBUG("Calculating percentage with quantity %i and total detections %",all_detections_array_.detections[it].recognitions.name_array[in].quantity,all_detections_array_.detections[it].total_detections);
+          ROS_DEBUG("Calculating percentage with quantity %i and total detections %",all_detections_array_.detections[it].recognitions.name_array[in].quantity,all_detections_array_.detections[it].total_detections);
           double percentage = ((all_detections_array_.detections[it].recognitions.name_array[in].quantity) * 100 / all_detections_array_.detections[it].total_detections);
           name += boost::lexical_cast<std::string>(percentage);
           hits = all_detections_array_.detections[it].recognitions.name_array[in].quantity;
         }
       }
       int cast = all_detections_array_.detections[it].recognitions.total_assigned;
-      //ROS_DEBUG("The major results name and percentage is %s",name.c_str());
+      ROS_DEBUG("The major results name and percentage is %s",name.c_str());
       name += "% of " + boost::lexical_cast<std::string>(cast) + " | ";
       int sec = (ros::Time::now().toSec() - all_detections_array_.detections[it].latest_pose_map.header.stamp.toSec());
       name += boost::lexical_cast<std::string>(sec) + "s";
@@ -170,7 +170,7 @@ void person_detector_class::showAllRecognitions()
 /*! The coordinates are transformed from the human_pose_raw_X to the map frame. If it suceeds the detection will be classified and add or used for an update.
     \todo Using the human_pose_raw_X frame is probably a bad idea. It's better so switch to camera frame directly */
 
-int person_detector_class::processDetections_()
+int person_detector_class::processDetections()
 {
   cob_people_detection_msgs::DetectionArray temporary_detection_array;
     if (!detection_temp_storage_.empty())
@@ -248,7 +248,7 @@ int person_detector_class::processDetections_()
         tf_human_local_broadcaster_.sendTransform(tf::StampedTransform(transform_br_map_,ros::Time::now(),"/map",pose_name));
       }
       //push object to the classification
-      classifyDetections_( temporary_detection_array);
+      classifyDetections( temporary_detection_array);
       detection_temp_storage_.pop();
     }
     //publish the new array
@@ -262,8 +262,8 @@ int person_detector_class::processDetections_()
 void person_detector_class::mapCallback_(const nav_msgs::OccupancyGrid received_map)
 {
   //initialize map
-  static_map.resizeMap(received_map.info.width,received_map.info.height,received_map.info.resolution,received_map.info.origin.position.x,received_map.info.origin.position.y);
-  updated_map.resizeMap(received_map.info.width,received_map.info.height,received_map.info.resolution,received_map.info.origin.position.x,received_map.info.origin.position.y);
+  static_map_.resizeMap(received_map.info.width,received_map.info.height,received_map.info.resolution,received_map.info.origin.position.x,received_map.info.origin.position.y);
+  updated_map_.resizeMap(received_map.info.width,received_map.info.height,received_map.info.resolution,received_map.info.origin.position.x,received_map.info.origin.position.y);
   difference_map_.resizeMap(received_map.info.width,received_map.info.height,received_map.info.resolution,received_map.info.origin.position.x,received_map.info.origin.position.y);
   updated_dm_.resizeMap(received_map.info.width,received_map.info.height,received_map.info.resolution,received_map.info.origin.position.x,received_map.info.origin.position.y);
   updated_counter_.resizeMap(received_map.info.width,received_map.info.height,received_map.info.resolution,received_map.info.origin.position.x,received_map.info.origin.position.y);
@@ -277,10 +277,10 @@ void person_detector_class::mapCallback_(const nav_msgs::OccupancyGrid received_
       for (unsigned int iw = 0; iw < received_map.info.width; iw++)
         {
           //for some reasons, we have to do the cast ourselves
-          if (*id == -1) static_map.setCost(iw,ih,costmap_2d::NO_INFORMATION);
-          else if (*id == 100) static_map.setCost(iw,ih,costmap_2d::LETHAL_OBSTACLE);
-          else static_map.setCost(iw,ih,costmap_2d::FREE_SPACE);
-          updated_map.setCost(iw,ih,costmap_2d::NO_INFORMATION);
+          if (*id == -1) static_map_.setCost(iw,ih,costmap_2d::NO_INFORMATION);
+          else if (*id == 100) static_map_.setCost(iw,ih,costmap_2d::LETHAL_OBSTACLE);
+          else static_map_.setCost(iw,ih,costmap_2d::FREE_SPACE);
+          updated_map_.setCost(iw,ih,costmap_2d::NO_INFORMATION);
           updated_dm_.setCost(iw,ih,254);
           id++;
         }
@@ -288,18 +288,20 @@ void person_detector_class::mapCallback_(const nav_msgs::OccupancyGrid received_
   //publish static map
   std::string map_name = "person_detector/static_map";
   std::string map_frame = received_map.header.frame_id;
-  pub_static_map = new costmap_2d::Costmap2DPublisher(&n_,&static_map,map_frame,map_name,false);
+  pub_static_map_ = new costmap_2d::Costmap2DPublisher(&n_,&static_map_,map_frame,map_name,false);
   map_name = "person_detector/new_obstacles";
   pub_dmap_new_ = new costmap_2d::Costmap2DPublisher(&n_,&dmap_new_,map_frame,map_name,true);
   map_name = "person_detector/pano_map";
   pub_dmap_pano_ = new costmap_2d::Costmap2DPublisher(&n_,&dmap_pano_,map_frame,map_name,true);
   inflateMap();
-  pub_static_map->publishCostmap();
-  pub_updated_map->publishCostmap();
-  pub_difference_map->publishCostmap();
+  pub_static_map_->publishCostmap();
+  pub_updated_map_->publishCostmap();
+  pub_difference_map_->publishCostmap();
   ROS_INFO("Map received - start working");
   map_initialized_ = true;
 }
+
+/*! Takes the localCostmap from the move_base node and updates the updated_map with the information. This is the way to get rid of false detected obstacles marked by the obstacleCallback_, because the localCostmap also provides FREE_SPACE. Every occupied point gets one additional hit on the updated_counter_ map and gets a minumum distance of 1m on the updated_dm_ map. A FREE_SPACE substracts 10 points from updated_counter_. If an occupied point has less than 10 points left, it is going to be marked as FREE_SPACE in the updated_map_. This behaviour should make the updated_map_ a bit more stable.*/
 
 void person_detector_class::localCostmapCallback_(const nav_msgs::OccupancyGrid received)
 {
@@ -307,9 +309,9 @@ void person_detector_class::localCostmapCallback_(const nav_msgs::OccupancyGrid 
   if (!map_initialized_) return;
 
   //integrate result into updated_map
-  double x_diff = received.info.origin.position.x - updated_map.getOriginX();
-  double y_diff = received.info.origin.position.y - updated_map.getOriginY();
-  double map_res = updated_map.getResolution();
+  double x_diff = received.info.origin.position.x - updated_map_.getOriginX();
+  double y_diff = received.info.origin.position.y - updated_map_.getOriginY();
+  double map_res = updated_map_.getResolution();
   double rec_res = received.info.resolution;
   unsigned int point_map_x = x_diff / map_res;
   unsigned int point_map_y = y_diff / map_res;
@@ -324,7 +326,7 @@ void person_detector_class::localCostmapCallback_(const nav_msgs::OccupancyGrid 
           int counter = updated_counter_.getCost(point_map_x,point_map_y);
           if (*it == 100)  // is occupied
           {
-            updated_map.setCost(point_map_x,point_map_y,costmap_2d::LETHAL_OBSTACLE);
+            updated_map_.setCost(point_map_x,point_map_y,costmap_2d::LETHAL_OBSTACLE);
             if (counter < 255)
             {
               updated_counter_.setCost(point_map_x,point_map_y,counter+1);
@@ -339,7 +341,7 @@ void person_detector_class::localCostmapCallback_(const nav_msgs::OccupancyGrid 
             else
             {
               updated_counter_.setCost(point_map_x,point_map_y,0);
-              updated_map.setCost(point_map_x,point_map_y,costmap_2d::FREE_SPACE);
+              updated_map_.setCost(point_map_x,point_map_y,costmap_2d::FREE_SPACE);
             }
           }
           //update distances
@@ -356,7 +358,7 @@ void person_detector_class::localCostmapCallback_(const nav_msgs::OccupancyGrid 
 //  pub_updated_map->publishCostmap();
 }
 
-/*! Calculates the distance for each point. Exits if the robot has an angular z velocity (turning) and scraps results being more than 4m away. If a point fulfills the requirements, it is set as LETHAL_OBSTACLE.
+/*! Calculates the distance for each point. As the sensor data is too noisy on large distances and when the robot is turning, the function exits if the robot has an angular z velocity (turning) and scraps results being more than 4m away. If a point fulfills the requirements, it is set as LETHAL_OBSTACLE on the updated_map_.
     \todo Make maximum distance easier to set */
 
 void person_detector_class::obstaclesCallback_(const sensor_msgs::PointCloud pcl)
@@ -364,9 +366,9 @@ void person_detector_class::obstaclesCallback_(const sensor_msgs::PointCloud pcl
   //we don't do anything if the map is not initialized
   if (!map_initialized_) return;
   //initialize helper variables
-  double map_orig_x = updated_map.getOriginX();
-  double map_orig_y = updated_map.getOriginY();
-  double map_res = updated_map.getResolution();
+  double map_orig_x = updated_map_.getOriginX();
+  double map_orig_y = updated_map_.getOriginY();
+  double map_res = updated_map_.getResolution();
   double x_diff;
   double y_diff;
   double x_diff2;
@@ -377,7 +379,7 @@ void person_detector_class::obstaclesCallback_(const sensor_msgs::PointCloud pcl
   int point_y;
   geometry_msgs::PoseWithCovarianceStamped pose;
   //find the best fitting amcl_pose of the robot
-  findAmclPose_(pose,pcl.header.stamp);
+  findAmclPose(pose,pcl.header.stamp);
   double x_lat = pose.pose.pose.position.x;
   double y_lat = pose.pose.pose.position.y;
   //throw away data produced while turning
@@ -397,7 +399,7 @@ void person_detector_class::obstaclesCallback_(const sensor_msgs::PointCloud pcl
       point_x = x_diff / map_res;
       point_y = y_diff / map_res;
       //update point
-      updated_map.setCost(point_x,point_y,costmap_2d::LETHAL_OBSTACLE);
+      updated_map_.setCost(point_x,point_y,costmap_2d::LETHAL_OBSTACLE);
       distance_dm = round(distance_m*10);
       if (distance_m < updated_dm_.getCost(point_x,point_y))
       {
@@ -411,15 +413,21 @@ void person_detector_class::obstaclesCallback_(const sensor_msgs::PointCloud pcl
     }
 }
 
+/*! The gyrometer data is needed by the obstaceCallback_ to discard points if the robot is turning.*/
+
 void person_detector_class::imuCallback_(const sensor_msgs::Imu imu)
 {
   imu_ang_vel_z = imu.angular_velocity.z;
 }
 
+/*! This function just saves the confirmations in a queue. */
+
 void person_detector_class::confirmationCallback_(const person_detector::SpeechConfirmation conf)
 {
   conf_queue_.push(conf);
 }
+
+/*! This function saves the latest 30 amcl poses in a vector.*/
 
 void person_detector_class::amclCallback_(const geometry_msgs::PoseWithCovarianceStamped pose)
 {
@@ -430,10 +438,12 @@ void person_detector_class::amclCallback_(const geometry_msgs::PoseWithCovarianc
   }
 }
 
-/*!
-    \todo Make maximum distance easier to set. */
+/*! This function akes all incoming detections and decides if they fulfill the requirements to update a known detection or if they are going to be added as a new detection. The distances between all incoming and known detection are calculated and the incoming detection will update a known detection if it is nearer than a specified distance (at the moment 50cm). This function also cares about resolving an situation when a few incoming detections are supposed to update the same known detection. In that case the closest hit will be used to update and the other one will be added as a new detection.
+    \todo Make maximum distance easier to set.
+    \todo Function always return true - can it never fail?
+    \sa processDetections \sa updateDetection \sa addNewDetection \sa clearDoubleResults */
 
-int person_detector_class::classifyDetections_( cob_people_detection_msgs::DetectionArray detection_array )
+int person_detector_class::classifyDetections( cob_people_detection_msgs::DetectionArray detection_array )
 {
   // push directly, if it is empty
   if (all_detections_array_.detections.empty())
@@ -441,7 +451,7 @@ int person_detector_class::classifyDetections_( cob_people_detection_msgs::Detec
     //just initialize the result and push it to the detection_array
     for (unsigned int it = 0; it < detection_array.detections.size(); it++)
     {
-      addNewDetection_(detection_array.detections[it]);
+      addNewDetection(detection_array.detections[it]);
       ROS_DEBUG("First detection - added a new one");
     }
     return 0;
@@ -473,33 +483,34 @@ int person_detector_class::classifyDetections_( cob_people_detection_msgs::Detec
   {
       win_dist[in] = 1000000;
   }
-  findDistanceWinner_(distances,win_id,win_dist,detection_array.detections.size());
+  findDistanceWinner(distances,win_id,win_dist,detection_array.detections.size());
   //check for double results
-  clearDoubleResults_(distances,win_id,win_dist,detection_array.detections.size());
+  clearDoubleResults(distances,win_id,win_dist,detection_array.detections.size());
 
   for (unsigned int in = 0; in < detection_array.detections.size(); in++)
   {
     // either update a result or make a new result
     if (win_dist[in] < max_dist_m )
     {
-      updateDetection_(detection_array.detections[in], win_id[in]);
+      updateDetection(detection_array.detections[in], win_id[in]);
     } else
     {
-      addNewDetection_(detection_array.detections[in]);
+      addNewDetection(detection_array.detections[in]);
     }
   }
   return 0;
 }
 
-int person_detector_class::addNewDetection_(cob_people_detection_msgs::Detection new_detection)
+/*! Initializes a new detection and adds it to the detection storage and assigns the first namelabel to the detection.
+    \sa updateDetection */
+
+int person_detector_class::addNewDetection(cob_people_detection_msgs::Detection new_detection)
 {
   ROS_INFO("Addind a new detection");
   person_detector::DetectionObject push_object;
   person_detector::NameLabel push_name;
 
   push_object.header.stamp = push_object.latest_pose_map.header.stamp = new_detection.header.stamp;  //why not taking the stamp of the object
-
-
   push_object.header.seq = recognition_id_;
   recognition_id_++;
   push_object.latest_pose_map.header.frame_id = "/map";
@@ -511,7 +522,7 @@ int person_detector_class::addNewDetection_(cob_people_detection_msgs::Detection
   push_object.confirmation.running = false;
   push_object.confirmation.suceeded = false;
   push_object.confirmation.tried = false;
-  findAmclPose_(push_object.last_seen_from,new_detection.header.stamp);
+  findAmclPose(push_object.last_seen_from,new_detection.header.stamp);
   if (new_detection.label != "UnknownHead" && new_detection.label != "Unknown")
   {
       push_name.label = new_detection.label;
@@ -528,7 +539,10 @@ int person_detector_class::addNewDetection_(cob_people_detection_msgs::Detection
   all_detections_array_.header.seq++;
 }
 
-int person_detector_class::updateDetection_(cob_people_detection_msgs::Detection new_detection, unsigned int pos)
+/*! Updates the position of a known detection with information of an incoming detection. The pose of the known detection is set to the one of the incoming detection and the name assigned to the detection is updated.
+    \sa addNewDetection*/
+
+int person_detector_class::updateDetection(cob_people_detection_msgs::Detection new_detection, unsigned int pos)
 {
   ROS_DEBUG("Updating a detection");
   //update general stuff
@@ -541,7 +555,7 @@ int person_detector_class::updateDetection_(cob_people_detection_msgs::Detection
   all_detections_array_.detections[pos].latest_pose_map.pose.position.y = new_detection.pose.pose.position.y;
   all_detections_array_.detections[pos].latest_pose_map.pose.position.z = new_detection.pose.pose.position.z;
   all_detections_array_.detections[pos].latest_pose_map.header.stamp = ros::Time::now();
-  findAmclPose_(all_detections_array_.detections[pos].last_seen_from,new_detection.header.stamp);
+  findAmclPose(all_detections_array_.detections[pos].last_seen_from,new_detection.header.stamp);
   //update or create a new nametag
   bool found = false;
   std::string it_label;
@@ -572,8 +586,10 @@ int person_detector_class::updateDetection_(cob_people_detection_msgs::Detection
   return 0;
 }
 
+/*! Helper function for clearDoubleResults_ and classifyDetections_. After the distances between known and incoming detections have been found, this function finds the closest known detection of an incoming detection and saves it in win_id and win_dist.
+    \sa classifyDetections \sa clearDoubleResults */
 
-int person_detector_class::findDistanceWinner_(std::vector< std::vector <double> > &distances, std::vector<unsigned int> &win_id, std::vector<double> &win_dist, unsigned int detection_array_size)
+int person_detector_class::findDistanceWinner(std::vector< std::vector <double> > &distances, std::vector<unsigned int> &win_id, std::vector<double> &win_dist, unsigned int detection_array_size)
 {
   for (unsigned int in = 0; in < detection_array_size; in++)
   {
@@ -589,7 +605,10 @@ int person_detector_class::findDistanceWinner_(std::vector< std::vector <double>
   return 0;
 }
 
-int person_detector_class::clearDoubleResults_(std::vector< std::vector <double> > &distances, std::vector<unsigned int> &win_id, std::vector<double> &win_dist, unsigned int detection_array_size)
+/*! E.g. in the case that we have 1 known detection, but 2 incoming detection both incoming detections will have the known detection as nearest known detection. This function resolves this conflict, as it's now possible to assign both of them to the same known detection. This function exits if all known or all incoming detections have been assigned.
+    \sa classifyDetections */
+
+int person_detector_class::clearDoubleResults(std::vector< std::vector <double> > &distances, std::vector<unsigned int> &win_id, std::vector<double> &win_dist, unsigned int detection_array_size)
 {
   //if we had just one new detection, we are done - puh
   if (detection_array_size == 1)
@@ -642,15 +661,15 @@ int person_detector_class::clearDoubleResults_(std::vector< std::vector <double>
     old_detect_avail[win_id[clos_id]] = false;
     new_recogn_avail[clos_id] = false;
     //calculate new winners, now that we could exclude one
-    findDistanceWinner_(distances,win_id,win_dist,win_id.size());
+    findDistanceWinner(distances,win_id,win_dist,win_id.size());
     //check, if we assigned all old detections
     bool more_work = false;
     for (unsigned int iw = 0; iw < old_detect_avail.size(); iw++)
     {
-        if (old_detect_avail[iw] == true)
-          {
-            more_work = true;
-          }
+      if (old_detect_avail[iw] == true)
+        {
+          more_work = true;
+        }
     }
     if (!more_work)
       {
@@ -672,6 +691,9 @@ int person_detector_class::clearDoubleResults_(std::vector< std::vector <double>
       }
   }
 }
+
+/*! Whenever we detection a person with the name <Example> it is unlikey that this person is anywhere else on the map. So every other known detection of the map having the name label <Example> gets substracted one hit on that name. If the counter for the tag gets 0 the name tag will be deleted.
+    \sa updateDetections \sa addNewDetection */
 
 int person_detector_class::substractHit(std::string label, unsigned int leave_id)
 {
@@ -703,7 +725,9 @@ int person_detector_class::substractHit(std::string label, unsigned int leave_id
   return 0;
 }
 
-int person_detector_class::garbageCollector_(ros::Duration oldness)
+/*! Face detections without any names as well as unpresent obstacles don't get deleted immediately. This is done by the garbage collector erasing all face detections without names assigned and unpresent obstacle which haven't been updated for a longer time than specified in the parameter. */
+
+int person_detector_class::garbageCollector(ros::Duration oldness)
 {
   ros::Time present = ros::Time::now();
   ros::Time time_stamp;
@@ -738,17 +762,19 @@ int person_detector_class::garbageCollector_(ros::Duration oldness)
   }
 }
 
+/*! This functions searches for LETHAL_OBSTACLES in the given map and marks all points around them as occupied. */
+
 int person_detector_class::inflateMap()
 {
   std::vector<unsigned int> lethal_ix;
   std::vector<unsigned int> lethal_iy;
   unsigned char cost = costmap_2d::LETHAL_OBSTACLE;
-  for(unsigned int j = 0; j < static_map.getSizeInCellsY(); j++)
+  for(unsigned int j = 0; j < static_map_.getSizeInCellsY(); j++)
     {
-        for(unsigned int i = 0; i < static_map.getSizeInCellsX(); i++)
+        for(unsigned int i = 0; i < static_map_.getSizeInCellsX(); i++)
           {
-        cost = static_map.getCost(i,j);
-        if(static_map.getCost(i, j) == costmap_2d::LETHAL_OBSTACLE)
+        cost = static_map_.getCost(i,j);
+        if(static_map_.getCost(i, j) == costmap_2d::LETHAL_OBSTACLE)
         {
           //add to vector
           lethal_ix.push_back(i);
@@ -767,30 +793,25 @@ int person_detector_class::inflateMap()
       {
         for (int iy = -3; iy < 4; iy++)
           {
-            static_map.setCost(lat_x-ix,lat_y-iy,costmap_2d::LETHAL_OBSTACLE);
+            static_map_.setCost(lat_x-ix,lat_y-iy,costmap_2d::LETHAL_OBSTACLE);
           }
       }
-//    static_map.setCost(lat_x-1,lat_y-1,costmap_2d::LETHAL_OBSTACLE);
-//    static_map.setCost(lat_x-1,lat_y,costmap_2d::LETHAL_OBSTACLE);
-//    static_map.setCost(lat_x-1,lat_y+1,costmap_2d::LETHAL_OBSTACLE);
-//    static_map.setCost(lat_x,lat_y-1,costmap_2d::LETHAL_OBSTACLE);
-//    static_map.setCost(lat_x,lat_y+1,costmap_2d::LETHAL_OBSTACLE);
-//    static_map.setCost(lat_x+1,lat_y-1,costmap_2d::LETHAL_OBSTACLE);
-//    static_map.setCost(lat_x+1,lat_y,costmap_2d::LETHAL_OBSTACLE);
-//    static_map.setCost(lat_x+1,lat_y+1,costmap_2d::LETHAL_OBSTACLE);
     lethal_ix.pop_back();
     lethal_iy.pop_back();
   }
   return 0;
 }
 
+/*! Generates the difference between the infalted static map and the updated_map_ to show which points are additionally occupied.
+    \sa difference_map_ \sa updated_map_ */
+
 int person_detector_class::generateDifferenceMap()
 {
-  for (unsigned int ix = 0; ix < static_map.getSizeInCellsX(); ix++)
+  for (unsigned int ix = 0; ix < static_map_.getSizeInCellsX(); ix++)
     {
-      for (unsigned int iy = 0; iy < static_map.getSizeInCellsY(); iy++)
+      for (unsigned int iy = 0; iy < static_map_.getSizeInCellsY(); iy++)
         {
-          if (updated_map.getCost(ix,iy) == costmap_2d::LETHAL_OBSTACLE && static_map.getCost(ix,iy) == costmap_2d::FREE_SPACE)
+          if (updated_map_.getCost(ix,iy) == costmap_2d::LETHAL_OBSTACLE && static_map_.getCost(ix,iy) == costmap_2d::FREE_SPACE)
             {
               difference_map_.setCost(ix,iy,costmap_2d::LETHAL_OBSTACLE);
             }
@@ -800,7 +821,11 @@ int person_detector_class::generateDifferenceMap()
             }
         }
     }
+  return 0;
 }
+
+/*! This function first tries to find all known obstacles on the latest difference_map_. If more than 5 points are found, the known obstacle will get updated. Otherwise it is marked as not present. The rest of the occupied points are added as new obsacles if more than 7 points are connected.
+    \sa all_obstacles_ */
 
 int person_detector_class::findObstacles()
 {
@@ -860,20 +885,20 @@ int person_detector_class::findObstacles()
           obs_map_xy.points.clear();
           obs.points.clear();
           new_map.setCost(ix,iy,costmap_2d::FREE_SPACE);
-          new_map.mapToWorld(ix,iy,x_map,y_map);
-          p_map_xy.x = ix;
-          p_map_xy.y = iy;
-          p.x = x_map;
-          p.y = y_map;
-          p.z = 0;
-          obs.points.push_back(p);
-          obs_map_xy.points.push_back(p_map_xy);
+          new_map.mapToWorld(ix,iy,x_map_,y_map_);
+          p_map_xy_.x = ix;
+          p_map_xy_.y = iy;
+          p_.x = x_map_;
+          p_.y = y_map_;
+          p_.z = 0;
+          obs.points.push_back(p_);
+          obs_map_xy.points.push_back(p_map_xy_);
           searchFurther(ix,iy,&new_map,&obs.points,&obs_map_xy.points);
           //we discard every obstacle smaller than 7 points
           if (obs.points.size() > 7)
           {
             rateObstacle_(&obs,&obs_map_xy);
-            findAmclPose_(obs.robot_pose,ros::Time::now());
+            findAmclPose(obs.robot_pose,ros::Time::now());
             obs.header.seq = recognition_id_;
             obs.present = true;
             recognition_id_++;
@@ -890,8 +915,6 @@ int person_detector_class::findObstacles()
   return 0;
 }
 
-
-
 bool person_detector_class::searchFurther(unsigned int x_orig, unsigned int y_orig, costmap_2d::Costmap2D *costmap, std::vector<geometry_msgs::Point> *points, std::vector<geometry_msgs::Point> *points_map_xy)
 {
   for (int ix = -3; ix < 4; ix++)
@@ -901,19 +924,21 @@ bool person_detector_class::searchFurther(unsigned int x_orig, unsigned int y_or
       if (costmap->getCost(x_orig+ix,y_orig+iy) == costmap_2d::LETHAL_OBSTACLE)
         {
           costmap->setCost(x_orig+ix,y_orig+iy,costmap_2d::FREE_SPACE);
-          costmap->mapToWorld(x_orig+ix,y_orig+iy,x_map,y_map);
-          p_map_xy.x = x_orig+ix;
-          p_map_xy.y = y_orig+iy;
-          p.x = x_map;
-          p.y = y_map;
-          p.z = 0;
-          points->push_back(p);
-          points_map_xy->push_back(p_map_xy);
+          costmap->mapToWorld(x_orig+ix,y_orig+iy,x_map_,y_map_);
+          p_map_xy_.x = x_orig+ix;
+          p_map_xy_.y = y_orig+iy;
+          p_.x = x_map_;
+          p_.y = y_map_;
+          p_.z = 0;
+          points->push_back(p_);
+          points_map_xy->push_back(p_map_xy_);
           searchFurther(x_orig+ix,y_orig+iy,costmap,points,points_map_xy);
         }
     }
   }
 }
+
+/*! This function rates an obstacle based on its size, the number of appearances of the points and the mean distance from which the points have been seen. At the moment the total score is equally partitioned between these 3 features. This means 33 of the 100 total points are influenced by the size, 33 by the distance and 33 by the number of appearances.*/
 
 bool person_detector_class::rateObstacle_(person_detector::Obstacle *obs, person_detector::ObsMapPoints *map_points)
 {
@@ -944,7 +969,7 @@ bool person_detector_class::rateObstacle_(person_detector::Obstacle *obs, person
   //build the average of the range rate
   rate_range = rate_range/map_points->points.size();
 
-  //fake rate of the form
+  //rate of the form
   if (map_points->points.size() < 5)
   {
     rate_form = 10;
@@ -968,6 +993,8 @@ bool person_detector_class::rateObstacle_(person_detector::Obstacle *obs, person
   return true;
 }
 
+/*! This function shows all obstacle information on rviz. The first kind of information is a short information string to every occupied point. It is displayed in the way "[number of appearances] | [shortest distance in dm]. The second information is a line connecting all points of an obstacle. The third is a cube representing the center of an obstacle. The fourth is an infotext displayed at the center of the obstacle and showing the ID of the obstacle, its rating and if it is confirmed. */
+
 void person_detector_class::showAllObstacles()
 {
   //nothing to do, if we're not initialized
@@ -981,9 +1008,9 @@ void person_detector_class::showAllObstacles()
       double map_y;
       std::string name;
       visualization_msgs::MarkerArray text_array;
-      for (unsigned int ix = 0; ix < updated_map.getSizeInCellsX(); ix++)
+      for (unsigned int ix = 0; ix < updated_map_.getSizeInCellsX(); ix++)
       {
-        for (unsigned int iy = 0; iy < updated_map.getSizeInCellsY(); iy++)
+        for (unsigned int iy = 0; iy < updated_map_.getSizeInCellsY(); iy++)
         {
             if (difference_map_.getCost(ix,iy) == costmap_2d::LETHAL_OBSTACLE)
           {
@@ -996,8 +1023,8 @@ void person_detector_class::showAllObstacles()
               int count = updated_counter_.getCost(ix,iy);
               name = boost::lexical_cast<std::string>(count);
               name += "|";
-              int cm = updated_dm_.getCost(ix,iy);
-              name+= boost::lexical_cast<std::string>(cm);
+              int dm = updated_dm_.getCost(ix,iy);
+              name+= boost::lexical_cast<std::string>(dm);
               obstacle_points_text_.text = name;
               text_array.markers.push_back(obstacle_points_text_);
               name.clear();
@@ -1166,7 +1193,9 @@ void person_detector_class::showAllObstacles()
   }
 }
 
-int person_detector_class::processConfirmations_()
+/*! This function updates the obstacles and face recognition with information from an external confirmation source. */
+
+int person_detector_class::processConfirmations()
 {
   person_detector::SpeechConfirmation act;
   while (!conf_queue_.empty())
@@ -1207,10 +1236,10 @@ int person_detector_class::processConfirmations_()
             //go through all name_array
             for (unsigned int in = 0; in < all_detections_array_.detections[it].recognitions.name_array.size(); in++)
             {
-                if (act.label == all_detections_array_.detections[it].recognitions.name_array[in].label)
-                {
-                    all_detections_array_.detections[it].recognitions.name_array.erase(all_detections_array_.detections[it].recognitions.name_array.begin()+in);
-                }
+              if (act.label == all_detections_array_.detections[it].recognitions.name_array[in].label)
+              {
+                  all_detections_array_.detections[it].recognitions.name_array.erase(all_detections_array_.detections[it].recognitions.name_array.begin()+in);
+              }
             }
           }
       }
@@ -1218,7 +1247,9 @@ int person_detector_class::processConfirmations_()
   }
 }
 
-bool person_detector_class::findAmclPose_(geometry_msgs::PoseWithCovarianceStamped &pose, ros::Time stamp)
+/*! Sometimes it is necessary to known the robots position of a certain moment in the past. This function finds the best fitting pose.*/
+
+bool person_detector_class::findAmclPose(geometry_msgs::PoseWithCovarianceStamped &pose, ros::Time stamp)
 {
   double t_tmp_diff = 0;
   double t_diff = 1000;
@@ -1243,7 +1274,7 @@ bool person_detector_class::findAmclPose_(geometry_msgs::PoseWithCovarianceStamp
 
 person_detector_class::person_detector_class()
 {
-  //initialize ros-stuff
+  //initialize ros
   sub_face_recognition_ = n_.subscribe("/cob_people_detection/detection_tracker/face_position_array",10, &person_detector_class::faceRecognitionCallback_,this);
   sub_imu_ = n_.subscribe("/mobile_base/sensors/imu_data",10,&person_detector_class::imuCallback_,this);
   sub_confirmations_ = n_.subscribe("/person_detector/confirmations",10,&person_detector_class::confirmationCallback_,this);
@@ -1349,7 +1380,6 @@ person_detector_class::person_detector_class()
 
 
   //initialize array
-  detection_array_in_use_ = false;
   recognition_id_ = 0;
 
   //maps
@@ -1359,33 +1389,33 @@ person_detector_class::person_detector_class()
   map_initialized_ = false;
 
   //updated_map
-  updated_map.resizeMap(10,10,1,0,0);
-  updated_map.updateOrigin(0,0);
+  updated_map_.resizeMap(10,10,1,0,0);
+  updated_map_.updateOrigin(0,0);
   std::string map_frame = "map";
   std::string updated_map_name = "person_detector/updated_map";
   for (unsigned int ih = 0; ih < 10; ih++)
     {
       for (unsigned int iw = 0; iw < 5; iw++)
         {
-          updated_map.setCost(ih,iw,costmap_2d::NO_INFORMATION);
+          updated_map_.setCost(ih,iw,costmap_2d::NO_INFORMATION);
         }
     }
-  pub_updated_map = new costmap_2d::Costmap2DPublisher(&n_,&updated_map,map_frame,updated_map_name,true);
-  pub_updated_map->publishCostmap();
+  pub_updated_map_ = new costmap_2d::Costmap2DPublisher(&n_,&updated_map_,map_frame,updated_map_name,true);
+  pub_updated_map_->publishCostmap();
   //difference_map
   difference_map_.resizeMap(10,10,1,0,0);
   difference_map_.updateOrigin(0,0);
   std::string difference_map_name = "person_detector/difference_map";
-  pub_difference_map = new costmap_2d::Costmap2DPublisher(&n_,&difference_map_,map_frame,difference_map_name,true);
-  pub_difference_map->publishCostmap();
+  pub_difference_map_ = new costmap_2d::Costmap2DPublisher(&n_,&difference_map_,map_frame,difference_map_name,true);
+  pub_difference_map_->publishCostmap();
 
   imu_ang_vel_z = 0;
 }
 
+/*! This is the main loop managing the whole process and running endless. After the object is initialized, this function should be called. */
+
 int person_detector_class::run()
 {
-  // An extra thread to do the processing of incoming data
- // boost::thread process_thread_object (&person_detector_class::processDetections, this);
   ros::Rate r(15);
   ros::Time start;
   ros::Time end;
@@ -1394,30 +1424,19 @@ int person_detector_class::run()
   while (ros::ok())
   {
     start = ros::Time::now();
-    processDetections_();
-    garbageCollector_(ros::Duration(60));
+    processDetections();
+    garbageCollector(ros::Duration(60));
     end = ros::Time::now();
     difference = end-start;
-    processConfirmations_();
+    processConfirmations();
     ROS_WARN_COND(detection_temp_storage_.size() > 10,"Our temporary storage is too big. It holds %i objects. Last circle took %f seconds.",detection_temp_storage_.size(),difference.toSec());
-    //do crazy stuff
     r.sleep();
     ros::spinOnce();
-//    if (map_initialized_)
-//      {
-//        for (int it = 0; it < 500; it++)
-//          {
-//            for (int ii = 0; ii < 50; ii++)
-//              {
-//                updated_map.setCost(it,ii,costmap_2d::LETHAL_OBSTACLE);
-//              }
-//          }
-//      }
     generateDifferenceMap();
     showAllRecognitions();
     findObstacles();
     showAllObstacles();
-    pub_difference_map->publishCostmap();
-    pub_updated_map->publishCostmap();
+    pub_difference_map_->publishCostmap();
+    pub_updated_map_->publishCostmap();
   }
 }

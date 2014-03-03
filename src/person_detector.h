@@ -82,11 +82,13 @@ private:
   void mapCallback_(const nav_msgs::OccupancyGrid received_map);
 
   //! Callback for the localCostmap provided by move_base
-  /*! \param received The received occupancy grid */
+  /*! \param received The received occupancy grid
+      \sa updated_map_ \sa obstacleCallback_ \sa updated_dm_ \sa updated_counter_ */
   void localCostmapCallback_ (const nav_msgs::OccupancyGrid received);
 
   //! Callback for the occupied points provided by move_base
-  /*! \param pcl The received PointCloud */
+  /*! \param pcl The received PointCloud
+      \sa updated_map_ \sa updated_dm_ \sa updated_counter_  */
   void obstaclesCallback_ (const sensor_msgs::PointCloud pcl);
 
   //! Callback for the gyrometer output.
@@ -119,12 +121,12 @@ private:
   //! Holds a copy of the static map received from the /map topic.
   /*! If a new map is received, the map information is copied into this costmap. After that it will be inflated by 10cm.
       \sa inflateMap_ \sa mapCallback_ */
-  costmap_2d::Costmap2D static_map;
+  costmap_2d::Costmap2D static_map_;
 
   //! This map is frequently updated with occupancy information.
   /*! It stores the information about currently occupied and free points and receives information from the localCostmap of move_base and the published obstacles. It is used to calculate the difference map.
       \sa localCostmapCallback_ \sa obstaclesCallback_ \sa calcDifferenceMap \sa difference_map_ */
-  costmap_2d::Costmap2D updated_map;
+  costmap_2d::Costmap2D updated_map_;
 
   //! This map stores information about the distance from which the obstacle has been seen.
   /*! The depthdata of the Kinect is very inaccurate on higher distances. The closest distance of a detection for each point is saved in this map. Please note, that it is stored in decimeter. A value of 10 results in 100cm closest distance. Obstacle seen by the localCostmap are always stored with 100cm distance. This map is used by rateObstacle.
@@ -155,9 +157,9 @@ private:
       \todo Add a warn if map_initialized is false */
   bool map_initialized_;
 
-  costmap_2d::Costmap2DPublisher *pub_static_map;                               //!< Publisher for the static map.  \sa static_map_
-  costmap_2d::Costmap2DPublisher *pub_updated_map;                              //!< Publisher for the updated map representing the current obstacles \sa updated_map_
-  costmap_2d::Costmap2DPublisher *pub_difference_map;                           //!< Publisher for the difference map \sa difference_map_
+  costmap_2d::Costmap2DPublisher *pub_static_map_;                               //!< Publisher for the static map.  \sa static_map_
+  costmap_2d::Costmap2DPublisher *pub_updated_map_;                              //!< Publisher for the updated map representing the current obstacles \sa updated_map_
+  costmap_2d::Costmap2DPublisher *pub_difference_map_;                           //!< Publisher for the difference map \sa difference_map_
   costmap_2d::Costmap2DPublisher *pub_dmap_new_;                                //!< Publisher for the difference map used to find obstacles \sa dmap_new_
   costmap_2d::Costmap2DPublisher *pub_dmap_pano_;                               //!< Publisher for the dmap_pano_ \sa dmap_pano_
 
@@ -184,35 +186,31 @@ private:
        \sa ObsMapPoints \sa all_obstacles_*/
   std::vector<person_detector::ObsMapPoints> all_obs_map_xy_;
   //global helperpoint
-  geometry_msgs::Point p;                                                     //!< This point is globally used to avoid the creation of temporary ones. Always reset unused attributes!
-  geometry_msgs::Point p_map_xy;                                              //!< This point is globally used to avoid the creation of temporary ones. Always reset unused attributes!
-  double x_map;                                                               //!< This variable is globally used to avoid the creation of temporary ones.
-  double y_map;                                                               //!< This variable is globally used to avoid the creation of temporary ones.
+  geometry_msgs::Point p_;                                                     //!< This point is globally used to avoid the creation of temporary ones. Always reset unused attributes!
+  geometry_msgs::Point p_map_xy_;                                              //!< This point is globally used to avoid the creation of temporary ones. Always reset unused attributes!
+  double x_map_;                                                               //!< This variable is globally used to avoid the creation of temporary ones.
+  double y_map_;                                                               //!< This variable is globally used to avoid the creation of temporary ones.
 
   //functions
   //! This function processes incoming detections to the right coordinate frame, rates and adds them to the global array.
   /*! \return¸Sucess of the processing */
-  int processDetections_();
+  int processDetections();
 
   //! This function takes incoming detections and calculates the distance to known ones.
   /*! \param detection_array The incoming detections
-      \return 0 on success
-      \todo Function always return true - can it never fail?
-      \sa processDetections */
-  int classifyDetections_( cob_people_detection_msgs::DetectionArray detection_array );
+      \return 0 on success */
+  int classifyDetections( cob_people_detection_msgs::DetectionArray detection_array );
 
   //! This function adds a incoming detection to the array of all detections
   /*! \param new_detection The new incoming detection which should be added
-      \return 0 on sucess
-      \sa updateDetection_ */
-  int addNewDetection_(cob_people_detection_msgs::Detection new_detection);
+      \return 0 on sucess */
+  int addNewDetection(cob_people_detection_msgs::Detection new_detection);
 
   //! This function updates a known detection with new information,
   /*! \param new_detection The incoming detection delivering information for the update
       \param pos The position in the all_detections_array_ for array access
-      \return 0 on sucess
-      \sa addNewDetection_*/
-  int updateDetection_(cob_people_detection_msgs::Detection new_detection, unsigned int pos);
+      \return 0 on sucess*/
+  int updateDetection(cob_people_detection_msgs::Detection new_detection, unsigned int pos);
 
   //! This function finds the closest known detection to a incoming detection
   /*! \param distances An array of distances
@@ -221,7 +219,7 @@ private:
       \param detection_array_size The amount of incoming detections
       \return 0 on success
 */
-  int findDistanceWinner_(std::vector< std::vector <double> > &distances, std::vector<unsigned int> &win_id, std::vector<double> &win_dist, unsigned int detection_array_size);
+  int findDistanceWinner(std::vector< std::vector <double> > &distances, std::vector<unsigned int> &win_id, std::vector<double> &win_dist, unsigned int detection_array_size);
 
   //! Checks if two incoming detections want to assign to the same known detection
   /*! \param distances The array of all distances between a incoming and a known detection
@@ -229,30 +227,28 @@ private:
       \param win_dist   The shortest distance between the incoming detection and the known detection specified in win_id
       \param detection_array_size The amount of known incoming detections
       \return 0 on success*/
-  int clearDoubleResults_(std::vector< std::vector <double> > &distances, std::vector<unsigned int> &win_id, std::vector<double> &win_dist, unsigned int detection_array_size);
+  int clearDoubleResults(std::vector< std::vector <double> > &distances, std::vector<unsigned int> &win_id, std::vector<double> &win_dist, unsigned int detection_array_size);
 
   //! Substracts an hit of a name on every other DetectionObject
   /*! \param label The newly detected name
       \param leave_id The ID the name was newly assigned.
       \return 0 on success */
-  int substractHit(std::string label, unsigned int leave_id);
+  int substractHit (std::string label, unsigned int leave_id);
 
   //! Deletes old face recognitions and detected obstacles
   /*! \param oldness The maximum lifetime and old object can have
       \return 0 on success */
-  int garbageCollector_ (ros::Duration oldness);
+  int garbageCollector (ros::Duration oldness);
 
   //! Prepares and sends visualization of the face recognitions to rviz
   void showAllRecognitions();
 
   //! Generates the difference map from the static map and the updated map
-  /*! \return 0 on sucess
-      \sa difference_map_ \sa updated_map */
+  /*! \return 0 on sucess*/
   int generateDifferenceMap();
 
   //! Updates known obstacles and finds new obstacles
-  /*! \return 0 on success
-      \sa all_obstacles_ */
+  /*! \return 0 on success */
   int findObstacles();
 
   //! Recursive helper function searching for more occupied points around a specified point
@@ -277,13 +273,13 @@ private:
   int inflateMap();
 
   //! Updates known obstacles and known face recognitions with incoming confirmation information
-  int processConfirmations_();
+  int processConfirmations();
 
   //! Finds the best fitting robot position to a specified time
   /*! \param pose The returned pose
       \param stamp The time the pose should match
       \result False if no poses are stored. True if a pose could be found*/
-  bool findAmclPose_ (geometry_msgs::PoseWithCovarianceStamped &pose, ros::Time stamp);
+  bool findAmclPose (geometry_msgs::PoseWithCovarianceStamped &pose, ros::Time stamp);
 
 public:
   //! Constructor initializing subscriber, publisher and marker
