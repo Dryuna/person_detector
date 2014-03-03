@@ -1,15 +1,14 @@
 #include "person_detector.h"
-#include <ros/ros.h>
-#include <ros/time.h>
-#include <cob_people_detection_msgs/DetectionArray.h> //to process the detectionarrays provided by the cob-people-perception
+#include <ros/ros.h>                                            // general ROS-header
+#include <ros/time.h>                                           // to use timestamps and durations
+#include <cob_people_detection_msgs/DetectionArray.h>           // to process the detectionarrays provided by the cob-people-perception
 #include <std_msgs/String.h>
-#include <boost/lexical_cast.hpp>          //to cast the integer
-#include <iostream>
-#include <math.h>                         //to calculate difference
-#include <sstream>                        // to cast the chars
-#include <std_msgs/ColorRGBA.h>           // To add colors to the lines
+#include <boost/lexical_cast.hpp>                               // to cast the integer
+#include <math.h>                                               // to calculate difference
+#include <sstream>                                              // to cast the chars
+#include <std_msgs/ColorRGBA.h>                                 // to add colors to the lines
 
-
+//! Creates an object of person_detector_class and runs the endless loop
 int main(int argc, char** argv)
 {
   ros::init(argc, argv, "person_detector");
@@ -19,56 +18,58 @@ int main(int argc, char** argv)
   return 0;
 }
 
+/*! Incoming DetectionArrays are checked if they contain detections. Detections are published as a transformation based in the camera frame. Cubes and text are published on rviz and the detections are finally added to detection_temp_storage_ for further processing. */
+
 void person_detector_class::faceRecognitionCallback_(const cob_people_detection_msgs::DetectionArray received_detections)
 {
-  ROS_DEBUG("Added a detection to the detectionStorage");
   cob_people_detection_msgs::DetectionArray temp_detections = received_detections;
-//  ROS_DEBUG("ROS Time in sec: %f, PersonDetection Time in sec: %f",ros::Time::now().toSec(),temp_detections.header.stamp.toSec());
 
   if (!temp_detections.detections.empty())
   {
-      for (unsigned int it = 0; it < temp_detections.detections.size(); it++)
-      {
-        ROS_DEBUG("Our new detection %i has the following lable: %s",it+1,temp_detections.detections[it].label.c_str());
-        transform_br_.setOrigin(tf::Vector3(temp_detections.detections[it].pose.pose.position.x,
-                                           temp_detections.detections[it].pose.pose.position.y,
-                                           temp_detections.detections[it].pose.pose.position.z));
+    for (unsigned int it = 0; it < temp_detections.detections.size(); it++)
+    {
+      ROS_DEBUG("Our new detection %i has the following lable: %s",it+1,temp_detections.detections[it].label.c_str());
+      transform_br_.setOrigin(tf::Vector3(temp_detections.detections[it].pose.pose.position.x,
+                                         temp_detections.detections[it].pose.pose.position.y,
+                                         temp_detections.detections[it].pose.pose.position.z));
 
-        transform_br_.setRotation(tf::Quaternion(temp_detections.detections[it].pose.pose.orientation.x,
-                                                temp_detections.detections[it].pose.pose.orientation.y,
-                                                temp_detections.detections[it].pose.pose.orientation.z));
-        std::string pose_name = "/person_detector/human_local_pose_raw_" + boost::lexical_cast<std::string>((it+1));
-        tf_human_local_broadcaster_.sendTransform(tf::StampedTransform(transform_br_,ros::Time::now(),"/camera_rgb_optical_frame",pose_name));
-        //add tf to the object
-        std_msgs::Header tempHeader;
-        tempHeader.frame_id =  pose_name;
-        temp_detections.detections[it].pose.header.frame_id = tempHeader.frame_id;
-        geometry_msgs::Point p;
-        p.x = temp_detections.detections[it].pose.pose.position.x;
-        p.y = temp_detections.detections[it].pose.pose.position.y;
-        p.z = temp_detections.detections[it].pose.pose.position.z;
-        heads_raw_.header.stamp = ros::Time::now();
-        heads_raw_.id = it;
-        heads_raw_.points.push_back(p);
-        pub_human_marker_raw_.publish(heads_raw_);
-        heads_raw_.points.clear();
+      transform_br_.setRotation(tf::Quaternion(temp_detections.detections[it].pose.pose.orientation.x,
+                                              temp_detections.detections[it].pose.pose.orientation.y,
+                                              temp_detections.detections[it].pose.pose.orientation.z));
+      std::string pose_name = "/person_detector/human_local_pose_raw_" + boost::lexical_cast<std::string>((it+1));
+      tf_human_local_broadcaster_.sendTransform(tf::StampedTransform(transform_br_,ros::Time::now(),"/camera_rgb_optical_frame",pose_name));
+      //add tf to the object
+      std_msgs::Header tempHeader;
+      tempHeader.frame_id =  pose_name;
+      temp_detections.detections[it].pose.header.frame_id = tempHeader.frame_id;
+      geometry_msgs::Point p;
+      p.x = temp_detections.detections[it].pose.pose.position.x;
+      p.y = temp_detections.detections[it].pose.pose.position.y;
+      p.z = temp_detections.detections[it].pose.pose.position.z;
+      heads_raw.header.stamp = ros::Time::now();
+      heads_raw.id = it;
+      heads_raw.points.push_back(p);
+      pub_human_marker_raw_.publish(heads_raw);
+      heads_raw.points.clear();
 
-        text_raw_.header.stamp = ros::Time::now();
-        text_raw_.id = it;
-        text_raw_.text = temp_detections.detections[it].label;
-        text_raw_.pose.position.x = temp_detections.detections[it].pose.pose.position.x;
-        text_raw_.pose.position.y = temp_detections.detections[it].pose.pose.position.y;
-        text_raw_.pose.position.z = temp_detections.detections[it].pose.pose.position.z+0.3;
-        pub_human_marker_raw_text_.publish(text_raw_);
-      }
-      detection_temp_storage_.push(temp_detections);
+      text_raw_.header.stamp = ros::Time::now();
+      text_raw_.id = it;
+      text_raw_.text = temp_detections.detections[it].label;
+      text_raw_.pose.position.x = temp_detections.detections[it].pose.pose.position.x;
+      text_raw_.pose.position.y = temp_detections.detections[it].pose.pose.position.y;
+      text_raw_.pose.position.z = temp_detections.detections[it].pose.pose.position.z+0.3;
+      pub_human_marker_raw_text_.publish(text_raw_);
+    }
+    ROS_DEBUG("Added a detection to the detectionStorage");
+    detection_temp_storage_.push(temp_detections);
   }
 }
+
+/*! If the recognition array contains recognitions, they are displayed on rviz. A cube representing the face is displayed in map coordinates and a text displaying the ID of the detection, the most often appearing name, the percentage and the total number of matched recognitions are displayed. If a recognition is in the process of a confirmation or confirmed this is displayed as well. */
 
 void person_detector_class::showAllRecognitions()
 {
   //check if we don't have any recognitions
-
   if (all_detections_array_.detections.empty())
   {
     return;
@@ -77,118 +78,118 @@ void person_detector_class::showAllRecognitions()
   std::string name;
   for (unsigned int it = 0; it < all_detections_array_.detections.size(); it++)
   {
-      //declare positions and stamp
-      p.x = all_detections_array_.detections[it].latest_pose_map.pose.position.x;
-      p.y = all_detections_array_.detections[it].latest_pose_map.pose.position.y;
-      p.z = all_detections_array_.detections[it].latest_pose_map.pose.position.z;
-      heads_.header.stamp = ros::Time::now();
-      heads_.id = all_detections_array_.detections[it].header.seq;
+    //declare positions and stamp
+    p.x = all_detections_array_.detections[it].latest_pose_map.pose.position.x;
+    p.y = all_detections_array_.detections[it].latest_pose_map.pose.position.y;
+    p.z = all_detections_array_.detections[it].latest_pose_map.pose.position.z;
+    heads_.header.stamp = ros::Time::now();
+    heads_.id = all_detections_array_.detections[it].header.seq;
 
-      //make text
-      //find dominating name
-      if (all_detections_array_.detections[it].recognitions.name_array.empty())
+    //make text
+    //find dominating name
+    if (all_detections_array_.detections[it].recognitions.name_array.empty())
+    {
+      int sec = (ros::Time::now().toSec() - all_detections_array_.detections[it].latest_pose_map.header.stamp.toSec());
+      name = "Unknown | " +  boost::lexical_cast<std::string>((sec)) + "s";
+    }
+    else
+    {
+      int hits = 0;
+      for (unsigned int in = 0; in < all_detections_array_.detections[it].recognitions.name_array.size(); in++)
+      {
+        if (all_detections_array_.detections[it].recognitions.name_array[in].quantity > hits)
         {
-          int sec = (ros::Time::now().toSec() - all_detections_array_.detections[it].latest_pose_map.header.stamp.toSec());
-          name = "Unknown | " +  boost::lexical_cast<std::string>((sec)) + "s";
-        } else {
-          int hits = 0;
-          for (unsigned int in = 0; in < all_detections_array_.detections[it].recognitions.name_array.size(); in++)
-            {
-              if (all_detections_array_.detections[it].recognitions.name_array[in].quantity > hits)
-                {
-                  name = all_detections_array_.detections[it].recognitions.name_array[in].label + " ";
-                  //ROS_DEBUG("Calculating percentage with quantity %i and total detections %",all_detections_array_.detections[it].recognitions.name_array[in].quantity,all_detections_array_.detections[it].total_detections);
-                  double percentage = ((all_detections_array_.detections[it].recognitions.name_array[in].quantity) * 100 / all_detections_array_.detections[it].total_detections);
-                  name += boost::lexical_cast<std::string>(percentage);
-                  hits = all_detections_array_.detections[it].recognitions.name_array[in].quantity;
-                }
-            }
-          int cast = all_detections_array_.detections[it].recognitions.total_assigned;
-          //ROS_DEBUG("The major results name and percentage is %s",name.c_str());
-          name += "% of " + boost::lexical_cast<std::string>(cast) + " | ";
-          int sec = (ros::Time::now().toSec() - all_detections_array_.detections[it].latest_pose_map.header.stamp.toSec());
-          name += boost::lexical_cast<std::string>(sec) + "s";
-          //adding state, if we're
+          name = all_detections_array_.detections[it].recognitions.name_array[in].label + " ";
+          //ROS_DEBUG("Calculating percentage with quantity %i and total detections %",all_detections_array_.detections[it].recognitions.name_array[in].quantity,all_detections_array_.detections[it].total_detections);
+          double percentage = ((all_detections_array_.detections[it].recognitions.name_array[in].quantity) * 100 / all_detections_array_.detections[it].total_detections);
+          name += boost::lexical_cast<std::string>(percentage);
+          hits = all_detections_array_.detections[it].recognitions.name_array[in].quantity;
         }
-      //changes in order of the state
-      if (all_detections_array_.detections[it].confirmation.suceeded)
-      {
-          heads_.color.b = 0;
-          heads_.color.g = 1.0;
-          heads_.color.r = 0;
-          name += "| confirmed";
       }
-      else if (all_detections_array_.detections[it].confirmation.running)
-      {
-        heads_.color.g = 1.0;
+      int cast = all_detections_array_.detections[it].recognitions.total_assigned;
+      //ROS_DEBUG("The major results name and percentage is %s",name.c_str());
+      name += "% of " + boost::lexical_cast<std::string>(cast) + " | ";
+      int sec = (ros::Time::now().toSec() - all_detections_array_.detections[it].latest_pose_map.header.stamp.toSec());
+      name += boost::lexical_cast<std::string>(sec) + "s";
+      //adding state, if we're
+    }
+    //changes in order of the state
+    if (all_detections_array_.detections[it].confirmation.suceeded)
+    {
         heads_.color.b = 0;
-        heads_.color.r = 1.0;
-        name += "| running";
-      }
-      else if (all_detections_array_.detections[it].confirmation.tried)
-      {
         heads_.color.g = 1.0;
-        heads_.color.b = 0;
-        heads_.color.r = 1.0;
-        name += "| tried";
-      }
-      else
-      {
-         heads_.color.b = 0;
-         heads_.color.r = 1.0;
-         heads_.color.g = 0;
-      }
-      //publishing this detection
-      heads_.points.push_back(p);
+        heads_.color.r = 0;
+        name += "| confirmed";
+    }
+    else if (all_detections_array_.detections[it].confirmation.running)
+    {
+      heads_.color.g = 1.0;
+      heads_.color.b = 0;
+      heads_.color.r = 1.0;
+      name += "| running";
+    }
+    else if (all_detections_array_.detections[it].confirmation.tried)
+    {
+      heads_.color.g = 1.0;
+      heads_.color.b = 0;
+      heads_.color.r = 1.0;
+      name += "| tried";
+    }
+    else
+    {
+       heads_.color.b = 0;
+       heads_.color.r = 1.0;
+       heads_.color.g = 0;
+    }
+    //publishing this detection
+    heads_.points.push_back(p);
+    pub_human_marker_.publish(heads_);
+    heads_.points.clear();
 
-      pub_human_marker_.publish(heads_);
-      heads_.points.clear();
-      heads_text_.header.stamp = ros::Time::now();
-      heads_text_.id = all_detections_array_.detections[it].header.seq;
-      heads_text_.text = name;
-      heads_text_.pose.position.x = all_detections_array_.detections[it].latest_pose_map.pose.position.x;
-      heads_text_.pose.position.y = all_detections_array_.detections[it].latest_pose_map.pose.position.y;
-      heads_text_.pose.position.z = all_detections_array_.detections[it].latest_pose_map.pose.position.z+0.3;
-      pub_human_marker_text_.publish(heads_text_);
+    heads_text_.header.stamp = ros::Time::now();
+    heads_text_.id = all_detections_array_.detections[it].header.seq;
+    heads_text_.text = name;
+    heads_text_.pose.position.x = all_detections_array_.detections[it].latest_pose_map.pose.position.x;
+    heads_text_.pose.position.y = all_detections_array_.detections[it].latest_pose_map.pose.position.y;
+    heads_text_.pose.position.z = all_detections_array_.detections[it].latest_pose_map.pose.position.z+0.3;
+    pub_human_marker_text_.publish(heads_text_);
 
-      //broadcast the results on tf
-      transform_br_map_.setOrigin(tf::Vector3(all_detections_array_.detections[it].latest_pose_map.pose.position.x,
-                                         all_detections_array_.detections[it].latest_pose_map.pose.position.y,
-                                         all_detections_array_.detections[it].latest_pose_map.pose.position.z));
+    //broadcast the results on tf
+    transform_br_map_.setOrigin(tf::Vector3(all_detections_array_.detections[it].latest_pose_map.pose.position.x,
+                                       all_detections_array_.detections[it].latest_pose_map.pose.position.y,
+                                       all_detections_array_.detections[it].latest_pose_map.pose.position.z));
 
-      transform_br_map_.setRotation(tf::Quaternion(all_detections_array_.detections[it].latest_pose_map.pose.orientation.x,
-                                              all_detections_array_.detections[it].latest_pose_map.pose.orientation.y,
-                                              all_detections_array_.detections[it].latest_pose_map.pose.orientation.z));
-      std::string pose_name = "/person_detector/human_pose_" + boost::lexical_cast<std::string>((all_detections_array_.detections[it].header.seq));
-      tf_map_human_broadcaster_.sendTransform(tf::StampedTransform(transform_br_map_,ros::Time::now(),"/map",pose_name));
+    transform_br_map_.setRotation(tf::Quaternion(all_detections_array_.detections[it].latest_pose_map.pose.orientation.x,
+                                            all_detections_array_.detections[it].latest_pose_map.pose.orientation.y,
+                                            all_detections_array_.detections[it].latest_pose_map.pose.orientation.z));
+    std::string pose_name = "/person_detector/human_pose_" + boost::lexical_cast<std::string>((all_detections_array_.detections[it].header.seq));
+    tf_map_human_broadcaster_.sendTransform(tf::StampedTransform(transform_br_map_,ros::Time::now(),"/map",pose_name));
   }
 }
+
+/*! The coordinates are transformed from the human_pose_raw_X to the map frame. If it suceeds the detection will be classified and add or used for an update.
+    \todo Using the human_pose_raw_X frame is probably a bad idea. It's better so switch to camera frame directly */
 
 int person_detector_class::processDetections_()
 {
   cob_people_detection_msgs::DetectionArray temporary_detection_array;
-//  ros::Rate rp(100);
-//  while(ros::ok())
-//  {
-  //get the cache length
-  ros::Duration tf_cache = tf_listener_.getCacheLength();
     if (!detection_temp_storage_.empty())
     {
-      //Take the first element to process it
       temporary_detection_array = detection_temp_storage_.front();
       //Skip everything, if we didn't detect anything new
-      if (temporary_detection_array.detections.size() == 0)
-      {
-        all_detections_array_.header.stamp = ros::Time::now();
-        detection_temp_storage_.pop();
-        return 0;
-      }
+//      this case should be covered in the callback
+//      if (temporary_detection_array.detections.size() == 0)
+//      {
+//        all_detections_array_.header.stamp = ros::Time::now();
+//        detection_temp_storage_.pop();
+//        return 0;
+//      }
       //Transform all detections into map coordinates
       for (unsigned int it = 0; it < temporary_detection_array.detections.size(); it++)
       {
         //check, if the transform requested is older than the caches size
         ros::Duration t_diff (ros::Time::now() - temporary_detection_array.header.stamp);
-        if (t_diff.toSec() > tf_cache.toSec())
+        if (t_diff.toSec() > tf_cache_.toSec())
         {
           ROS_WARN("Not using this detection, because it's too old and no tf-data will be available");
           detection_temp_storage_.pop();
@@ -248,7 +249,6 @@ int person_detector_class::processDetections_()
       }
       //push object to the classification
       classifyDetections_( temporary_detection_array);
-      detection_array_in_use_ = false;
       detection_temp_storage_.pop();
     }
     //publish the new array
@@ -256,6 +256,8 @@ int person_detector_class::processDetections_()
 
     return 0;
 }
+
+/*! All the internally used map have to fit to the one static map coming from the /map topic. This callback should just be called once. If the mapserver has autosend on, this implementation will fail. The advantage of this implementation is, that it automatically adapts if a new map is loaded.*/
 
 void person_detector_class::mapCallback_(const nav_msgs::OccupancyGrid received_map)
 {
@@ -354,6 +356,9 @@ void person_detector_class::localCostmapCallback_(const nav_msgs::OccupancyGrid 
 //  pub_updated_map->publishCostmap();
 }
 
+/*! Calculates the distance for each point. Exits if the robot has an angular z velocity (turning) and scraps results being more than 4m away. If a point fulfills the requirements, it is set as LETHAL_OBSTACLE.
+    \todo Make maximum distance easier to set */
+
 void person_detector_class::obstaclesCallback_(const sensor_msgs::PointCloud pcl)
 {
   //we don't do anything if the map is not initialized
@@ -366,26 +371,26 @@ void person_detector_class::obstaclesCallback_(const sensor_msgs::PointCloud pcl
   double y_diff;
   double x_diff2;
   double y_diff2;
-  double distance;
+  double distance_m;
+  int distance_dm;
   int point_x;
   int point_y;
   geometry_msgs::PoseWithCovarianceStamped pose;
-  double x_lat = pose.pose.pose.position.x;
-  double y_lat = pose.pose.pose.position.y;
   //find the best fitting amcl_pose of the robot
   findAmclPose_(pose,pcl.header.stamp);
+  double x_lat = pose.pose.pose.position.x;
+  double y_lat = pose.pose.pose.position.y;
+  //throw away data produced while turning
+  if (imu_ang_vel_z != 0) return; //the data is useless, if we turn
 
   for (std::vector<geometry_msgs::Point32>::const_iterator it = pcl.points.begin(); it != pcl.points.end(); it++)
     {
-      //throw away data produced while turning
-      if (imu_ang_vel_z != 0) return; //the data is useless, if we turn
-
       //calculate difference
       x_diff2 = (it->x -x_lat)*(it->x - x_lat);
       y_diff2 = (it->y - y_lat)*(it->y - y_lat);
-      distance = sqrt(x_diff2+y_diff2);
+      distance_m = sqrt(x_diff2+y_diff2);
       //throw away results being more than 4m away
-      if (distance > 4) continue;
+      if (distance_m > 4) continue;
       //find the points
       x_diff = it->x - map_orig_x;
       y_diff = it->y - map_orig_y;
@@ -393,8 +398,8 @@ void person_detector_class::obstaclesCallback_(const sensor_msgs::PointCloud pcl
       point_y = y_diff / map_res;
       //update point
       updated_map.setCost(point_x,point_y,costmap_2d::LETHAL_OBSTACLE);
-      int distance_dm = round(distance*10);
-      if (distance < updated_dm_.getCost(point_x,point_y))
+      distance_dm = round(distance_m*10);
+      if (distance_m < updated_dm_.getCost(point_x,point_y))
       {
         updated_dm_.setCost(point_x,point_y,distance_dm);
       }
@@ -425,6 +430,9 @@ void person_detector_class::amclCallback_(const geometry_msgs::PoseWithCovarianc
   }
 }
 
+/*!
+    \todo Make maximum distance easier to set. */
+
 int person_detector_class::classifyDetections_( cob_people_detection_msgs::DetectionArray detection_array )
 {
   // push directly, if it is empty
@@ -439,7 +447,7 @@ int person_detector_class::classifyDetections_( cob_people_detection_msgs::Detec
     return 0;
   }
   ROS_DEBUG("Started distance calculation");
-  //try to find a corresponging match within a distance of x cm
+  //try to find a corresponging match within a distance of x m
   double max_dist_m = 0.50;
   std::vector< std::vector <double> > distances (detection_array.detections.size(), std::vector<double>(all_detections_array_.detections.size()));
   //populate vector with
@@ -455,7 +463,6 @@ int person_detector_class::classifyDetections_( cob_people_detection_msgs::Detec
         distances[in][ia] = sqrt((xdiff*xdiff)+(ydiff*ydiff)+(zdiff*zdiff));
     }
   }
-
 
   //find the winner
   ROS_DEBUG("Searching for the winner");
@@ -604,7 +611,7 @@ int person_detector_class::clearDoubleResults_(std::vector< std::vector <double>
 
   //safety exit from the loop
   ros::Time start = ros::Time::now();
-  ros::Duration max_time = ros::Duration(5);
+  ros::Duration max_time = ros::Duration(1.5);
   while (ros::ok())
   {
     if ((ros::Time::now()-start) > max_time)
@@ -612,7 +619,7 @@ int person_detector_class::clearDoubleResults_(std::vector< std::vector <double>
       ROS_WARN("Safety exit from the clear double result. This should not happen!");
       return -1;
     }
-    //we're searching for the shortest distance first
+    //searching for the shortest distance first
     double closest = 100000;
     unsigned int clos_id = 0;
     for (unsigned int in = 0; in < win_dist.size(); in++)
@@ -1253,17 +1260,17 @@ person_detector_class::person_detector_class()
   pub_obstacle_borders_ = n_.advertise<visualization_msgs::MarkerArray>("/person_detector/obstacle_borders",10);
   pub_obstacle_info_text_ = n_.advertise<visualization_msgs::MarkerArray>("/person_detector/obstacle_info_text",10);
   pub_obstacle_cubes_ = n_.advertise<visualization_msgs::MarkerArray>("/person_detector/obstacle_cubes",10);
-  heads_raw_.header.frame_id = "/camera_rgb_optical_frame";
-  heads_raw_.ns = "person_detector/face_marker";
-  heads_raw_.id = 0;
-  heads_raw_.lifetime = ros::Duration(10);
-  heads_raw_.action = visualization_msgs::Marker::ADD;
-  heads_raw_.type = visualization_msgs::Marker::POINTS;
-  heads_raw_.scale.x = 0.2;
-  heads_raw_.scale.y = 0.2;
-  heads_raw_.scale.z = 0.2;
-  heads_raw_.color.g = 1.0f;
-  heads_raw_.color.a = 1.0;
+  heads_raw.header.frame_id = "/camera_rgb_optical_frame";
+  heads_raw.ns = "person_detector/face_marker";
+  heads_raw.id = 0;
+  heads_raw.lifetime = ros::Duration(10);
+  heads_raw.action = visualization_msgs::Marker::ADD;
+  heads_raw.type = visualization_msgs::Marker::POINTS;
+  heads_raw.scale.x = 0.2;
+  heads_raw.scale.y = 0.2;
+  heads_raw.scale.z = 0.2;
+  heads_raw.color.g = 1.0f;
+  heads_raw.color.a = 1.0;
 
   text_raw_.header.frame_id = "/camera_rgb_optical_frame";
   text_raw_.ns = "person_detector/face_marker_text";

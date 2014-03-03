@@ -55,7 +55,7 @@ private:
 
   //markers for rviz
   ros::Publisher pub_human_marker_raw_;                         //!< Publisher of the raw received face detections as cubes in rviz. \sa showAllRecognitions
-  visualization_msgs::Marker heads_raw_;                        //!< Reusable Marker for the pub_human_marker_raw_. Avoids long initialization. \sa showAllRecognitions
+  visualization_msgs::Marker heads_raw;                        //!< Reusable Marker for the pub_human_marker_raw_. Avoids long initialization. \sa showAllRecognitions
   ros::Publisher pub_human_marker_raw_text_;                    //!< Publisher of the raw received face detections as text in rviz. \sa showAllRecognitions
   visualization_msgs::Marker text_raw_;                         //!< Reusable Marker for the pub_human_marker_raw_text_. Avoids long initialization. \sa showAllRecognitions
   ros::Publisher pub_human_marker_;                             //!< Publisher of all face recognitions stored in all_detections_ as cubes in rviz. \sa showAllRecognitions
@@ -190,56 +190,105 @@ private:
   double y_map;                                                               //!< This variable is globally used to avoid the creation of temporary ones.
 
   //functions
-  //! This function processes new detections to the right coordinate frame, rates and adds them to the global array.
+  //! This function processes incoming detections to the right coordinate frame, rates and adds them to the global array.
   /*! \return¸Sucess of the processing */
   int processDetections_();
 
-  //! This function takes new detections and calculates the distance to known ones.
-  /*! \param detection_array The new detections
+  //! This function takes incoming detections and calculates the distance to known ones.
+  /*! \param detection_array The incoming detections
       \return 0 on success
       \todo Function always return true - can it never fail?
       \sa processDetections */
   int classifyDetections_( cob_people_detection_msgs::DetectionArray detection_array );
 
-  //! This function adds a new detection to the array of all detections
-  /*! \param new_detection The new detection which should be added
+  //! This function adds a incoming detection to the array of all detections
+  /*! \param new_detection The new incoming detection which should be added
       \return 0 on sucess
       \sa updateDetection_ */
   int addNewDetection_(cob_people_detection_msgs::Detection new_detection);
 
   //! This function updates a known detection with new information,
-  /*! \param new_detection The new detection delivering information for the update
+  /*! \param new_detection The incoming detection delivering information for the update
       \param pos The position in the all_detections_array_ for array access
       \return 0 on sucess
       \sa addNewDetection_*/
   int updateDetection_(cob_people_detection_msgs::Detection new_detection, unsigned int pos);
 
-  //! This function finds the closest known detection to a new detection
+  //! This function finds the closest known detection to a incoming detection
   /*! \param distances An array of distances
-      \param win_id The ID of the closest known detection to each new detection. The same ID can appear several times!
+      \param win_id The ID of the closest known detection to each incoming detection. The same ID can appear several times!
       \param win_dist The winning distance for each pair in meter.
-      \param detection_array_size The size of the array
+      \param detection_array_size The amount of incoming detections
       \return 0 on success
 */
   int findDistanceWinner_(std::vector< std::vector <double> > &distances, std::vector<unsigned int> &win_id, std::vector<double> &win_dist, unsigned int detection_array_size);
+
+  //! Checks if two incoming detections want to assign to the same known detection
+  /*! \param distances The array of all distances between a incoming and a known detection
+      \param win_id The ID of the closest known detection to an incoming detection
+      \param win_dist   The shortest distance between the incoming detection and the known detection specified in win_id
+      \param detection_array_size The amount of known incoming detections
+      \return 0 on success*/
   int clearDoubleResults_(std::vector< std::vector <double> > &distances, std::vector<unsigned int> &win_id, std::vector<double> &win_dist, unsigned int detection_array_size);
+
+  //! Substracts an hit of a name on every other DetectionObject
+  /*! \param label The newly detected name
+      \param leave_id The ID the name was newly assigned.
+      \return 0 on success */
   int substractHit(std::string label, unsigned int leave_id);
+
+  //! Deletes old face recognitions and detected obstacles
+  /*! \param oldness The maximum lifetime and old object can have
+      \return 0 on success */
   int garbageCollector_ (ros::Duration oldness);
+
+  //! Prepares and sends visualization of the face recognitions to rviz
   void showAllRecognitions();
+
+  //! Generates the difference map from the static map and the updated map
+  /*! \return 0 on sucess
+      \sa difference_map_ \sa updated_map */
   int generateDifferenceMap();
+
+  //! Updates known obstacles and finds new obstacles
+  /*! \return 0 on success
+      \sa all_obstacles_ */
   int findObstacles();
-  bool searchFurther(unsigned int orig_x, unsigned int orig_y, costmap_2d::Costmap2D* costmap, std::vector<geometry_msgs::Point> *heads_raw_, std::vector<geometry_msgs::Point> *points_map_xy );
+
+  //! Recursive helper function searching for more occupied points around a specified point
+  /*! \param orig_x The starting x position on the costmap
+      \param orig_y The starting y position on the costmap
+      \param costmap The costmap used for to search. Every found occupied point is going to be marked as FREE_SPACE on this costmap
+      \param points Vector storing all found points in metric map coordiantes to update or create an obstacle object
+      \param points_map_xy Vector storing all found point in costmap array coordinates
+      \return sucess */
+  bool searchFurther(unsigned int orig_x, unsigned int orig_y, costmap_2d::Costmap2D* costmap, std::vector<geometry_msgs::Point> *points, std::vector<geometry_msgs::Point> *points_map_xy );
+
+  //! Helper function rating an obstacle on a scale from 0 to 100
+  /*! \param obs Pointer to the obstacle that should be rated
+      \param map_points Pointer to the corresponding points in the costmap array coordinates
+      \return sucess */
   bool rateObstacle_(person_detector::Obstacle *obs, person_detector::ObsMapPoints *map_points);
+
+  //! Prepares and sends visualization of the obstacles to rviz
   void showAllObstacles();
+
+  //! Inflates occupied points on a received static map by 10cm
   int inflateMap();
+
+  //! Updates known obstacles and known face recognitions with incoming confirmation information
   int processConfirmations_();
 
+  //! Finds the best fitting robot position to a specified time
+  /*! \param pose The returned pose
+      \param stamp The time the pose should match
+      \result False if no poses are stored. True if a pose could be found*/
   bool findAmclPose_ (geometry_msgs::PoseWithCovarianceStamped &pose, ros::Time stamp);
 
-
-
 public:
+  //! Constructor initializing subscriber, publisher and marker
   person_detector_class();
+  //! Runs endless and manages the whole detection process
   int run();
 };
 
