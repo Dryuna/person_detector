@@ -965,7 +965,7 @@ bool person_detector_class::rateObstacle_(person_detector::Obstacle *obs, person
       }
   }
   //build the average of counts and normalize it to 100
-  rate_counts = rate_counts/(map_points->points.size()*255);
+  rate_counts = (100*rate_counts)/(map_points->points.size()*255);
   //build the average of the range rate
   rate_range = rate_range/map_points->points.size();
 
@@ -1162,7 +1162,7 @@ void person_detector_class::showAllObstacles()
         obstacle_cubes_.color.r = 1;
       }
       // present obstacles will be blue
-      if (all_obstacles_.obstacles[it].present)
+      else if (all_obstacles_.obstacles[it].present)
       {
         obstacle_cubes_.color.b = 1.0;
         obstacle_cubes_.color.g = 0;
