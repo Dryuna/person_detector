@@ -37,7 +37,7 @@ void person_detector_class::faceRecognitionCallback_(const cob_people_detection_
                                               temp_detections.detections[it].pose.pose.orientation.y,
                                               temp_detections.detections[it].pose.pose.orientation.z));
       std::string pose_name = "/person_detector/human_local_pose_raw_" + boost::lexical_cast<std::string>((it+1));
-      tf_human_local_broadcaster_.sendTransform(tf::StampedTransform(transform_br_,ros::Time::now(),"/camera_rgb_optical_frame",pose_name));
+      tf_human_local_broadcaster_.sendTransform(tf::StampedTransform(transform_br_,temp_detections.header.stamp,"/camera_rgb_optical_frame",pose_name));
       //add tf to the object
       std_msgs::Header tempHeader;
       tempHeader.frame_id =  pose_name;
@@ -436,6 +436,26 @@ void person_detector_class::amclCallback_(const geometry_msgs::PoseWithCovarianc
   {
     amcl_poses_.erase(amcl_poses_.begin());
   }
+}
+
+void person_detector_class::resetAllCallback(const std_msgs::Empty trig)
+{
+  all_obstacles_.header.seq = 0;
+  all_obstacles_.obstacles.clear();
+  all_detections_array_.header.seq = 0;
+  all_detections_array_.detections.clear();
+}
+
+void person_detector_class::resetObtaclesCallback(const std_msgs::Empty trig)
+{
+  all_obstacles_.header.seq = 0;
+  all_obstacles_.obstacles.clear();
+}
+
+void person_detector_class::resetDetectionsCallback(const std_msgs::Empty trig)
+{
+  all_detections_array_.header.seq = 0;
+  all_detections_array_.detections.clear();
 }
 
 /*! This function akes all incoming detections and decides if they fulfill the requirements to update a known detection or if they are going to be added as a new detection. The distances between all incoming and known detection are calculated and the incoming detection will update a known detection if it is nearer than a specified distance (at the moment 50cm). This function also cares about resolving an situation when a few incoming detections are supposed to update the same known detection. In that case the closest hit will be used to update and the other one will be added as a new detection.
@@ -862,10 +882,11 @@ int person_detector_class::findObstacles()
         //update points
         all_obstacles_.obstacles[it].points = tmp_p;
         all_obs_map_xy_[it].points = tmp_p_map_xy;
+        calculateCenter(tmp_p,all_obstacles_.obstacles[it].center);
         //update time
         all_obstacles_.obstacles[it].header.stamp = ros::Time::now();
         all_obstacles_.obstacles[it].present = true;
-        rateObstacle_(&all_obstacles_.obstacles[it],&all_obs_map_xy_[it]);
+        rateObstacle(&all_obstacles_.obstacles[it],&all_obs_map_xy_[it]);
       }
 
     }
@@ -897,8 +918,9 @@ int person_detector_class::findObstacles()
           //we discard every obstacle smaller than 7 points
           if (obs.points.size() > 7)
           {
-            rateObstacle_(&obs,&obs_map_xy);
+            rateObstacle(&obs,&obs_map_xy);
             findAmclPose(obs.robot_pose,ros::Time::now());
+            calculateCenter(obs.points,obs.center);
             obs.header.seq = recognition_id_;
             obs.present = true;
             recognition_id_++;
@@ -940,7 +962,7 @@ bool person_detector_class::searchFurther(unsigned int x_orig, unsigned int y_or
 
 /*! This function rates an obstacle based on its size, the number of appearances of the points and the mean distance from which the points have been seen. At the moment the total score is equally partitioned between these 3 features. This means 33 of the 100 total points are influenced by the size, 33 by the distance and 33 by the number of appearances.*/
 
-bool person_detector_class::rateObstacle_(person_detector::Obstacle *obs, person_detector::ObsMapPoints *map_points)
+bool person_detector_class::rateObstacle(person_detector::Obstacle *obs, person_detector::ObsMapPoints *map_points)
 {
   //right now, we calculate an average
   int total_points = 0;
@@ -990,6 +1012,22 @@ bool person_detector_class::rateObstacle_(person_detector::Obstacle *obs, person
   //total rate
   total_points = (rate_counts + rate_range + rate_form)/3;
   obs->probability = total_points;
+  return true;
+}
+
+bool person_detector_class::calculateCenter(std::vector<geometry_msgs::Point> points, geometry_msgs::Pose &pose)
+{
+  if (points.empty()) return false;
+  //calculate center
+  double x = 0;
+  double y = 0;
+  for (unsigned int ip = 0; ip < points.size(); ip++)
+  {
+    x += points[ip].x;
+    y += points[ip].y;
+  }
+  pose.position.x = x / points.size();
+  pose.position.y = y / points.size();
   return true;
 }
 
@@ -1090,8 +1128,8 @@ void person_detector_class::showAllObstacles()
   if (pub_obstacle_cubes_.getNumSubscribers() > 0 || pub_obstacle_info_text_.getNumSubscribers() > 0)
   {
     //helper variables
-    double x;
-    double y;
+    double x = 0;
+    double y = 0;
     geometry_msgs::Point p;
     visualization_msgs::MarkerArray text_array;
     visualization_msgs::MarkerArray cube_array;
@@ -1099,20 +1137,10 @@ void person_detector_class::showAllObstacles()
     p.z = 0.2;
     for (unsigned int it = 0; it < all_obstacles_.obstacles.size(); it++)
     {
-      //calculate center
-      x = 0;
-      y = 0;
-      for (unsigned int ip = 0; ip < all_obstacles_.obstacles[it].points.size(); ip++)
-      {
-        x += all_obstacles_.obstacles[it].points[ip].x;
-        y += all_obstacles_.obstacles[it].points[ip].y;
-      }
-      x = x / all_obstacles_.obstacles[it].points.size();
-      y = y / all_obstacles_.obstacles[it].points.size();
+
       //assign value
-      obstacle_info_text_.pose.position.x = p.x = x;
-      p.y = y;
-      obstacle_info_text_.pose.position.y = y;
+      obstacle_info_text_.pose.position.x = p.x = all_obstacles_.obstacles[it].center.position.x;
+      obstacle_info_text_.pose.position.y = p.y = all_obstacles_.obstacles[it].center.position.y;
       obstacle_cubes_.points.clear();
       obstacle_cubes_.points.push_back(p);
       //build text
@@ -1279,6 +1307,9 @@ person_detector_class::person_detector_class()
   sub_imu_ = n_.subscribe("/mobile_base/sensors/imu_data",10,&person_detector_class::imuCallback_,this);
   sub_confirmations_ = n_.subscribe("/person_detector/confirmations",10,&person_detector_class::confirmationCallback_,this);
   sub_amcl_ = n_.subscribe("/amcl_pose",10,&person_detector_class::amclCallback_,this);
+  sub_reset_all_ = n_.subscribe("/person_detector/reset_all_detections",1,&person_detector_class::resetAllCallback,this);
+  sub_reset_obstacles_ = n_.subscribe("/person_detector/reset_obstacles",1,&person_detector_class::resetObtaclesCallback,this);
+  sub_reset_detections_ = n_.subscribe("/person_detector/reset_face_detections",1,&person_detector_class::resetDetectionsCallback,this);
   tf_cache_ = tf_listener_.getCacheLength();
   pub_all_recognitions_ = n_.advertise<person_detector::DetectionObjectArray>("/person_detector/all_recognitions",10);
   pub_all_obstacles_ = n_.advertise<person_detector::ObstacleArray>("/person_detector/all_obstacles",10);
@@ -1416,7 +1447,7 @@ person_detector_class::person_detector_class()
 
 int person_detector_class::run()
 {
-  ros::Rate r(15);
+  ros::Rate r(5);
   ros::Time start;
   ros::Time end;
   ros::Duration difference;

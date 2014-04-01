@@ -1,2 +1,2 @@
 string label
-uint8 quantity
+uint16 quantity

@@ -17,6 +17,7 @@
 #include <costmap_2d/costmap_2d_ros.h>                  // to use a costmap
 #include <sensor_msgs/Imu.h>                            // to get information about the rotation
 #include <geometry_msgs/PoseWithCovarianceStamped.h>    // for amcl
+#include <geometry_msgs/Pose.h>                         // to save the center of an obstacle
 
 namespace person_detector {
   //! This struct is used to store the obstacle map points
@@ -44,6 +45,9 @@ private:
   ros::Subscriber sub_imu_;                                     //!< Subscriber to the robots gyro data
   ros::Subscriber sub_confirmations_;                           //!< Subscriber to the confirmations published by other nodes
   ros::Subscriber sub_amcl_;                                    //!< Subscriber to the robots positions published by amcl
+  ros::Subscriber sub_reset_all_;                               //!< Subscriber to reset the obstacles and the detections
+  ros::Subscriber sub_reset_obstacles_;                         //!< Subscriber to reset the detected obstacles
+  ros::Subscriber sub_reset_detections_;                        //!< Subscriber to reset the face detections
   //transformations
   tf::TransformListener tf_listener_;                           //!< Transformation listener to get transformations between a face recognition and the map
   tf::StampedTransform transform_li_;                           //!< Resuable transformation object for the transformation listener
@@ -55,7 +59,7 @@ private:
 
   //markers for rviz
   ros::Publisher pub_human_marker_raw_;                         //!< Publisher of the raw received face detections as cubes in rviz. \sa showAllRecognitions
-  visualization_msgs::Marker heads_raw;                        //!< Reusable Marker for the pub_human_marker_raw_. Avoids long initialization. \sa showAllRecognitions
+  visualization_msgs::Marker heads_raw;                         //!< Reusable Marker for the pub_human_marker_raw_. Avoids long initialization. \sa showAllRecognitions
   ros::Publisher pub_human_marker_raw_text_;                    //!< Publisher of the raw received face detections as text in rviz. \sa showAllRecognitions
   visualization_msgs::Marker text_raw_;                         //!< Reusable Marker for the pub_human_marker_raw_text_. Avoids long initialization. \sa showAllRecognitions
   ros::Publisher pub_human_marker_;                             //!< Publisher of all face recognitions stored in all_detections_ as cubes in rviz. \sa showAllRecognitions
@@ -102,6 +106,18 @@ private:
   //! Callback for the position of the robot provided by amcl
   /*! \param pose The received pose with covariance */
   void amclCallback_(const geometry_msgs::PoseWithCovarianceStamped pose);
+
+  //! The callback to reset all detections
+  /*! \param trig The trigger */
+  void resetAllCallback(const std_msgs::Empty trig);
+
+  //! The callback to reset obstacles
+  /*! \param trig The trigger */
+  void resetObtaclesCallback(const std_msgs::Empty trig);
+
+  //! The callback to reset all face detections
+  /*! \param trig The trigger */
+  void resetDetectionsCallback(const std_msgs::Empty trig);
 
   //detections
   //! Storage for detection arrays provided by cob_people_detection waiting to be processed
@@ -264,7 +280,14 @@ private:
   /*! \param obs Pointer to the obstacle that should be rated
       \param map_points Pointer to the corresponding points in the costmap array coordinates
       \return sucess */
-  bool rateObstacle_(person_detector::Obstacle *obs, person_detector::ObsMapPoints *map_points);
+  bool rateObstacle(person_detector::Obstacle *obs, person_detector::ObsMapPoints *map_points);
+
+  //! Helper function to calculate the geometric center of a set of points
+  /*! \param points The points used for calculation
+      \param pose   The returned pose
+      \return success  */
+
+  bool calculateCenter(std::vector<geometry_msgs::Point> points, geometry_msgs::Pose &pose);
 
   //! Prepares and sends visualization of the obstacles to rviz
   void showAllObstacles();
